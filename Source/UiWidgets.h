@@ -327,8 +327,8 @@ public:
             const Point<float> np (c.x + std::cos (ang) * (R + 1.f),
                                    c.y - std::sin (ang) * (R + 1.f));
             const float wt = nw[i] * depth;
-            const int  fx  = nChoice[i] ? (int) (nChoice[i]->load() + 0.5f) - 1 : -1;
-            const bool ena = nEnable[i] && nEnable[i]->load() > 0.5f;
+            int        fx  = nChoice[i] ? (int) (nChoice[i]->load() + 0.5f) - 1 : -1;
+            bool       ena = nEnable[i] != nullptr && nEnable[i]->load() > 0.5f;
             const Colour nc = (ena && fx >= 0 && fx < djx::kNumFx)
                               ? params::catColour (djx::kFxCategory[fx])
                               : Colour (0xff2a3045);
@@ -485,7 +485,7 @@ private:
 
     LunaFXProcessor& proc;
     RangedAudioParameter *px, *py, *pe, *pTouch, *pSpring, *pByp;
-    RangedAudioParameter *nChoice[16], *nEnable[16]; // cached to avoid per-frame string lookup crash
+    std::atomic<float> *nChoice[16], *nEnable[16]; // cached to avoid per-frame string lookup crash
     Image img;
     float phase = 0.f;
     bool touchEngaged = false, gestureOpen = false;
