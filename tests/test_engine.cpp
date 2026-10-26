@@ -60,21 +60,19 @@ int main(int argc, char** argv)
         check(err < 1e-5, "all amounts 0 => bit transparent");
     }
 
-    // 2. pitch accuracy
+    // 2. Unified Harmony instrument: both independently configured voices work together.
     {
-        struct T { int fx; double f0; double expect; const char* name; float harm; } tests[] = {
-            { Fx::OctDown, 440, 220, "OctDown 440->220", 7 }, { Fx::OctUp, 440, 880, "OctUp 440->880", 7 },
-            { Fx::Harmony, 440, 659.3, "Harmony +7 440->659", 7 } };
-        for (auto& t : tests)
-        {
-            Engine e; e.prepare(sr); Settings S; S.engaged = true; S.amt[t.fx] = 1.f; S.harmSemis = t.harm;
-            std::vector<float> in(96000), out;
-            for (int i = 0; i < (int) in.size(); ++i) in[i] = 0.3f * std::sin(2 * kTestPi * t.f0 * i / sr);
-            run(e, S, in, out);
-            double pf = peakFreq(out, 48000, 8192, t.expect * 0.8, t.expect * 1.2);
-            printf("  %s => detected %.1f Hz\n", t.name, pf);
-            check(std::fabs(pf - t.expect) < t.expect * 0.02, t.name);
-        }
+        Engine e; e.prepare (sr); Settings S; S.engaged = true;
+        S.amt[Fx::Harmony] = 1.f; S.harmDownSemis = -12.f; S.harmUpSemis = 12.f;
+        std::vector<float> in (96000), out;
+        for (int i = 0; i < (int) in.size(); ++i)
+            in[i] = 0.3f * std::sin (2 * kTestPi * 440.0 * i / sr);
+        run (e, S, in, out);
+        const double down = mag (out, 48000, 8192, 220.0);
+        const double up   = mag (out, 48000, 8192, 880.0);
+        printf ("  Harmony: octave down %.3f, octave up %.3f\n", down, up);
+        check (down > 0.02, "Harmony down voice audible at -12 semitones");
+        check (up > 0.02, "Harmony up voice audible at +12 semitones");
     }
 
     // 3. ring mod sidebands

@@ -62,24 +62,40 @@ void LunaFXProcessor::buildSettings (djx::Settings& s, bool engagedNow)
     s.fadeMs  = V (raw.fade);
     s.inGain  = Decibels::decibelsToGain (V (raw.inGain), -60.f);
     s.outGain = Decibels::decibelsToGain (V (raw.outGain), -60.f);
-    for (int i = 0; i < kNumFx; ++i) s.amt[(size_t) i] = V (raw.amt[i]);
+    std::array<float, kNumFx> manualMix {};
+    for (int i = 0; i < kNumFx; ++i)
+        manualMix[(size_t) i] = jlimit (0.f, 1.f, V (raw.amt[i]));
+    s.amt = manualMix;
 
-    // 16-node angular blending
+    // Circle is a performance mixer, not an extra effect send. The rack Mix
+    // value sets each instrument's maximum amount; when the instrument is
+    // assigned to an enabled rim node, proximity controls that amount smoothly.
+    // Unassigned instruments remain available as fixed rack effects.
     float nw[16] {};
     params::nodeWeights (V (raw.padX), V (raw.padY), nw);
-    const float depth = V (raw.padDepth);
+    const float depth = jlimit (0.f, 1.f, V (raw.padDepth));
+    std::array<float, kNumFx> spatialWeight {};
+    std::array<bool, kNumFx> routed {};
     for (int ni = 0; ni < 16; ++ni)
-        if (raw.nodeEnable[ni]->load() > 0.5f)
+        if (raw.nodeEnable[ni] != nullptr && raw.nodeEnable[ni]->load() > 0.5f && raw.nodeChoice[ni] != nullptr)
         {
-            const int fx = IDX (raw.nodeChoice[ni]->load(), kNumFx) - 1;
-            if (fx >= 0 && fx < kNumFx)
-                s.amt[(size_t) fx] = jlimit (0.f, 1.f, s.amt[(size_t) fx] + nw[ni] * depth);
+            // Choice 0 = None; remaining choices map only to visible instruments.
+            const int fx = params::fxFromChoice (IDX (raw.nodeChoice[ni]->load(), params::visibleFxCount()));
+            if (params::isVisibleFx (fx))
+            {
+                routed[(size_t) fx] = true;
+                spatialWeight[(size_t) fx] = jmax (spatialWeight[(size_t) fx], jlimit (0.f, 1.f, nw[ni] * depth));
+            }
         }
-    for (auto& a : s.amt) a = jlimit (0.f, 1.f, a);
+    for (int fx = 0; fx < kNumFx; ++fx)
+        s.amt[(size_t) fx] = routed[(size_t) fx]
+            ? manualMix[(size_t) fx] * spatialWeight[(size_t) fx]
+            : manualMix[(size_t) fx];
 
-    s.pitchWinMs = V (raw.pitchWin); s.harmSemis = V (raw.harmInt); s.whamSemis = V (raw.whamPos);
+    s.pitchWinMs = V (raw.pitchWin); s.harmDownSemis = V (raw.harmDown); s.harmUpSemis = V (raw.harmUp); s.whamSemis = V (raw.whamPos);
     s.diveSemis = V (raw.diveDepth); s.diveTime = V (raw.diveTime); s.diveCurve = IDX (V (raw.diveCurve), 3); s.detCents = V (raw.detCents);
-    s.fuzzDrive = V (raw.fuzzDrive); s.fuzzTone = V (raw.fuzzTone); s.crushBits = V (raw.crushBits); s.crushRate = V (raw.crushRate);
+    s.fuzzDrive = V (raw.fuzzDrive); s.fuzzTone = V (raw.fuzzTone);
+    s.tapeDrive = V (raw.tapeDrive); s.tapeTone = V (raw.tapeTone); s.tapeWear = V (raw.tapeWear); s.tapeBias = V (raw.tapeBias);
     s.ringFreq = V (raw.ringFreq); s.filtMode = IDX (V (raw.filtMode), 2);
     s.filtFreq = V (raw.filtFreq); s.filtRes = V (raw.filtRes); s.filtRate = V (raw.filtRate); s.filtDepth = V (raw.filtDepth); s.wahSens = V (raw.wahSens);
     s.radioLow = V (raw.radioLow); s.radioHigh = V (raw.radioHigh); s.radioDrive = V (raw.radioDrive);
@@ -89,14 +105,16 @@ void LunaFXProcessor::buildSettings (djx::Settings& s, bool engagedNow)
     s.choRate = V (raw.choRate); s.choDepth = V (raw.choDepth); s.flRate = V (raw.flRate); s.flFb = V (raw.flFb);
     s.phRate = V (raw.phRate); s.phFb = V (raw.phFb); s.trBeats = kDivBeats[IDX (V (raw.trDiv), kNumDivs - 1)];
     s.trDepth = V (raw.trDepth); s.vibRate = V (raw.vibRate); s.vibDepth = V (raw.vibDepth);
-    s.subFreq = V (raw.subFreq); s.subDecay = V (raw.subDecay); s.risTime = V (raw.risTime);
-    s.risMode = IDX (V (raw.risMode), 2); s.risStart = V (raw.risStart); s.risEnd = V (raw.risEnd); s.risNoise = V (raw.risNoise); s.risTone = V (raw.risTone);
+    s.deathyRate = V (raw.deathyRate); s.deathyDepth = V (raw.deathyDepth); s.deathyTone = V (raw.deathyTone); s.deathyRes = V (raw.deathyRes);
+    s.hauntRate = V (raw.hauntRate); s.hauntDepth = V (raw.hauntDepth); s.hauntTone = V (raw.hauntTone); s.hauntRes = V (raw.hauntRes);
     const int dd = IDX (V (raw.dlyDiv), kNumDivs);
     s.dlyFree = dd >= kNumDivs; s.dlyBeats = kDivBeats[jmin (dd, kNumDivs - 1)];
     s.dlyMs = V (raw.dlyMs); s.dlyFb = V (raw.dlyFb); s.dlyTone = V (raw.dlyTone); s.dlyPing = V (raw.dlyPing);
-    s.dlyWidth = V (raw.dlyWidth); s.dlySat = V (raw.dlySat); s.dlyMod = V (raw.dlyMod);
+    s.dlyWidth = V (raw.dlyWidth); s.dlySat = V (raw.dlySat); s.dlyMod = V (raw.dlyMod); s.dlyDuck = V (raw.dlyDuck);
     s.revDecay = V (raw.revDecay); s.revDamp = V (raw.revDamp); s.revPreMs = V (raw.revPre); s.revSize = V (raw.revSize); s.revRoom = IDX (V (raw.revRoom), 6);
+    s.revMod = V (raw.revMod); s.revWidth = V (raw.revWidth); s.revFreeze = V (raw.revFreeze) > 0.5f;
     s.shDecay = V (raw.shDecay); s.shFb = V (raw.shFb); s.shSemis = V (raw.shInt);
+    s.shTone = V (raw.shTone); s.shWidth = V (raw.shWidth); s.shMod = V (raw.shMod);
 }
 
 void LunaFXProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer& midi)
@@ -239,6 +257,7 @@ void LunaFXProcessor::setCurrentProgram (int index)
     if (! isPositiveAndBelow (index, (int) ps.size())) return;
     currentProgram = index;
     currentUserPresetName.clear();
+    uiPresetRevision.fetch_add (1, std::memory_order_relaxed);
 
     for (auto& d : params::defs())
         if (d.inPreset)
@@ -272,7 +291,7 @@ void LunaFXProcessor::randomizeNow()
     std::vector<int> pool;     // effects belonging to enabled categories
     bool anyOn = false;
     for (int i = 0; i < kNumFx; ++i)
-        if (flag (kFxCategory[i])) pool.push_back (i);
+        if (params::isVisibleFx (i) && flag (kFxCategory[i])) pool.push_back (i);
 
     for (auto& d : params::defs())
     {
@@ -302,11 +321,12 @@ void LunaFXProcessor::randomizeNow()
 
     if (flag (6))                                            // randomize 16 rim nodes
     {
-        std::vector<int> pool2 = pool.empty() ? [&]{ std::vector<int> v; for(int i=0;i<kNumFx;++i) v.push_back(i); return v; }() : pool;
-        for (int k = 0; k < 16; ++k)
+        std::vector<int> pool2 = pool;
+        if (pool2.empty()) for (int i = 0; i < kNumFx; ++i) if (params::isVisibleFx (i)) pool2.push_back (i);
+        if (! pool2.empty()) for (int k = 0; k < 16; ++k)
         {
             const int fx = pool2[(size_t) R.nextInt ((int) pool2.size())];
-            setN ("n" + std::to_string (k), (float) (fx + 1) / (float) kNumFx);
+            setN ("n" + std::to_string (k), params::normalisedChoiceForFx (fx));
             if (auto* p = apvts.getParameter ("n" + std::to_string (k) + "e"))
                 p->setValueNotifyingHost (p->convertTo0to1 (R.nextFloat() < 0.72f ? 1.f : 0.f));
         }
@@ -339,6 +359,7 @@ void LunaFXProcessor::setStateInformation (const void* data, int size)
         currentProgram = jlimit (0, jmax (0, getNumPrograms() - 1),
                                  (int) vt.getProperty ("program", 0));
         currentUserPresetName = vt.getProperty ("userPresetName", String()).toString();
+        uiPresetRevision.fetch_add (1, std::memory_order_relaxed);
 
         if (auto* killParam = apvts.getParameter ("kill"))
             killParam->setValueNotifyingHost (killParam->convertTo0to1 (0.f));

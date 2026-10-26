@@ -20,7 +20,10 @@ static Colour catCol (int cat)
     return params::catColour (jlimit (0, 5, cat));
 }
 // cat names used for top-bar / header
-static const char* kCatName[6] = { "PITCH", "FX", "GLITCH", "MOD", "GEN", "TIME" };
+static const char* kCatName[6] = { "PITCH", "FX", "GLITCH", "MOD", "INTERNAL", "TIME" };
+static constexpr int kVisibleCategories[5] = { 0, 1, 2, 3, 5 };
+static constexpr const char* kVisibleCategoryNames[5] = { "PITCH", "FX", "GLITCH", "MOD", "TIME" };
+static int visibleCategoryForTab (int tab) { return (tab >= 0 && tab < 5) ? kVisibleCategories[tab] : 0; }
 
 // ============================================================  small draw helpers
 static void fillRR (Graphics& g, Rectangle<float> r, float rad, Colour c)
@@ -33,7 +36,7 @@ FxDetailPanel::FxDetailPanel (LunaFXProcessor& p) : proc (p) {}
 
 void FxDetailPanel::showFx (int fxIndex)
 {
-    if (fxIndex < -1 || fxIndex >= djx::kNumFx) fxIndex = -1;
+    if (fxIndex < -1 || fxIndex >= djx::kNumFx || (fxIndex >= 0 && ! params::isVisibleFx (fxIndex))) fxIndex = -1;
     if (fxIndex == currentFx) return;
     currentFx = fxIndex;
     knobs.clear();
@@ -52,7 +55,7 @@ void FxDetailPanel::showFx (int fxIndex)
     }
     // also add the amount knob
     auto amtId = params::amtId (fxIndex);
-    auto amtKn = std::make_unique<ParamControl> (proc.apvts, amtId.c_str(), "Amount",
+    auto amtKn = std::make_unique<ParamControl> (proc.apvts, amtId.c_str(), "Mix",
                                                   catCol (djx::kFxCategory[fxIndex]));
     addAndMakeVisible (*amtKn);
     knobs.insert (knobs.begin(), std::move (amtKn));
@@ -70,8 +73,9 @@ void FxDetailPanel::resized()
 {
     if (knobs.empty()) return;
     auto area  = getLocalBounds().reduced (10, 8);
-    const int kw   = 90;
-    const int kh   = 90;
+    area.removeFromTop (36); // reserve the title strip; controls must not cover the FX name
+    const int kw   = 88;
+    const int kh   = 92;
     const int cols = jmax (1, area.getWidth() / kw);
     int x = area.getX(), y = area.getY(), col = 0;
     for (auto& k : knobs)
@@ -113,18 +117,27 @@ void FxDetailPanel::paint (Graphics& g)
 FxCategoryPanel::FxCategoryPanel (LunaFXProcessor& p, FxDetailPanel& d)
     : proc (p), detail (d)
 {
-    // create 6 category tab buttons
-    for (int i = 0; i < 6; ++i)
+    // Only categories that contain real instruments are exposed.
+    lastProgram = proc.getCurrentProgram();
+    lastPresetRevision = proc.uiPresetRevision.load (std::memory_order_relaxed);
+    for (int i = 0; i < 5; ++i)
     {
-        auto* btn = catTabs.add (new TextButton (kCatName[i]));
+        auto* btn = catTabs.add (new TextButton (kVisibleCategoryNames[i]));
         btn->addListener (this);
         addAndMakeVisible (btn);
     }
     selectCategory (0);
 }
 
-void FxCategoryPanel::selectCategory (int cat)
+void FxCategoryPanel::selectCategory (int cat, bool clearSelection)
 {
+    if (cat != 0 && cat != 1 && cat != 2 && cat != 3 && cat != 5) cat = 0;
+    if (clearSelection)
+    {
+        selFx = -1;
+        proc.uiSelectedFx.store (-1, std::memory_order_relaxed);
+        detail.showFx (-1);
+    }
     activeCat = cat;
     rows.clear();
     for (auto* c : catTabs) removeChildComponent (c);
@@ -133,7 +146,7 @@ void FxCategoryPanel::selectCategory (int cat)
     // build rows for every FX in this category
     for (int i = 0; i < djx::kNumFx; ++i)
     {
-        if (djx::kFxCategory[i] != cat) continue;
+        if (! params::isVisibleFx (i) || djx::kFxCategory[i] != cat) continue;
         FxRow row;
         row.fxIdx = i;
 
@@ -143,6 +156,7 @@ void FxCategoryPanel::selectCategory (int cat)
 
         row.amt = std::make_unique<Slider> (Slider::LinearHorizontal, Slider::NoTextBox);
         row.amt->setPopupDisplayEnabled (true, true, nullptr);
+        row.amt->setTooltip ("Maximum Mix. When assigned to the XY ring, the puck's distance scales the live mix.");
         row.amtAtt = std::make_unique<AudioProcessorValueTreeState::SliderAttachment> (
                 proc.apvts, params::amtId (i), *row.amt);
         addAndMakeVisible (*row.amt);
@@ -168,17 +182,39 @@ void FxCategoryPanel::selectCategory (int cat)
 
 void FxCategoryPanel::refresh()
 {
+    const auto revision = proc.uiPresetRevision.load (std::memory_order_relaxed);
+    const int program = proc.getCurrentProgram();
+    if (revision != lastPresetRevision || program != lastProgram)
+    {
+        lastPresetRevision = revision;
+        lastProgram = program;
+        presetFlash = 1.f;
+    }
+    else if (isVisible()) presetFlash = jmax (0.f, presetFlash - 0.035f);
+
+    // The circle and right-hand rack share one selection. Clicking a rim node
+    // selects its instrument here without requiring the user to hunt the list.
+    const int ext = proc.uiSelectedFx.load (std::memory_order_relaxed);
+    if (params::isVisibleFx (ext) && ext != selFx)
+    {
+        if (djx::kFxCategory[ext] != activeCat) selectCategory (djx::kFxCategory[ext]);
+        selFx = ext;
+        detail.showFx (selFx);
+    }
+
     for (auto& row : rows)
     {
         const float amt = proc.apvts.getRawParameterValue (params::amtId (row.fxIdx))->load();
         row.power->setToggleState (amt > 0.01f, dontSendNotification);
 
-        // check if any of the 16 rim nodes has this FX assigned
+        // Compact choice mapping: choice 0 is None, then visible instrument indexes.
         row.onPad = false;
         for (int ni = 0; ni < 16 && !row.onPad; ++ni)
         {
             const auto* pp = proc.apvts.getRawParameterValue ("n" + String (ni));
-            if (pp && (int) (pp->load() + 0.5f) == row.fxIdx + 1) row.onPad = true;
+            const auto* en = proc.apvts.getRawParameterValue ("n" + String (ni) + "e");
+            const int fx = pp != nullptr ? params::fxFromChoice ((int) (pp->load() + 0.5f)) : -1;
+            row.onPad = (fx == row.fxIdx && en != nullptr && en->load() > 0.5f);
         }
     }
     repaint();
@@ -187,11 +223,12 @@ void FxCategoryPanel::refresh()
 void FxCategoryPanel::buttonClicked (Button* btn)
 {
     for (int i = 0; i < catTabs.size(); ++i)
-        if (catTabs[i] == btn) { selectCategory (i); return; }
+        if (catTabs[i] == btn) { selectCategory (visibleCategoryForTab (i), true); return; }
     for (auto& row : rows)
         if (row.nameBtn.get() == btn)
         {
             selFx = (selFx == row.fxIdx) ? -1 : row.fxIdx;
+            proc.uiSelectedFx.store (selFx, std::memory_order_relaxed);
             detail.showFx (selFx);
             repaint();
             return;
@@ -203,19 +240,23 @@ void FxCategoryPanel::resized()
     auto area = getLocalBounds();
     // category tabs row
     auto tabs = area.removeFromTop (28);
-    const int tw = tabs.getWidth() / 6;
-    for (int i = 0; i < 6; ++i)
+    const int count = jmax (1, catTabs.size());
+    const int tw = tabs.getWidth() / count;
+    for (int i = 0; i < catTabs.size(); ++i)
         catTabs[i]->setBounds (tabs.getX() + i * tw, tabs.getY(), tw - 2, 26);
 
     area.removeFromTop (4);
+    area.removeFromTop (15); // small legend row, drawn in paint()
+    area.removeFromTop (2);
     const int rowH = 36;
     for (auto& row : rows)
     {
         auto r = area.removeFromTop (rowH);
-        row.nameBtn->setBounds (r.getX(), r.getY() + 4, 130, 28);
+        // Reserve room for the on-pad badge; it must never sit on top of the Mix slider.
+        row.nameBtn->setBounds (r.getX() + 16, r.getY() + 4, 124, 28);
         row.power  ->setBounds (r.getRight() - 28, r.getY() + 8, 20, 20);
-        row.amt    ->setBounds (r.getX() + 136, r.getY() + 10,
-                                 r.getWidth() - 136 - 34, 16);
+        row.amt    ->setBounds (r.getX() + 188, r.getY() + 10,
+                                 r.getWidth() - 188 - 34, 16);
     }
 }
 
@@ -225,36 +266,67 @@ void FxCategoryPanel::paint (Graphics& g)
     for (int i = 0; i < catTabs.size(); ++i)
     {
         auto b = catTabs[i]->getBounds().toFloat();
-        const bool active = (i == activeCat);
-        fillRR   (g, b, 5.f, active ? catCol (i).withAlpha (0.9f) : lunaPanelMd());
-        strokeRR (g, b, 5.f, catCol (i), active ? 2.f : 1.f);
-        catTabs[i]->setColour (TextButton::textColourOffId, active ? lunaBase() : catCol (i));
+        const int cat = visibleCategoryForTab (i);
+        const bool active = cat == activeCat;
+        bool presetUsesCategory = false;
+        if (presetFlash > 0.f)
+        {
+            for (int fx = 0; fx < djx::kNumFx; ++fx)
+                if (params::isVisibleFx (fx) && djx::kFxCategory[fx] == cat
+                    && proc.apvts.getRawParameterValue (params::amtId (fx))->load() > 0.01f)
+                    presetUsesCategory = true;
+            // Also glow a category when the preset routes one of its instruments
+            // onto the ring, even if its current maximum Mix is still zero.
+            for (int ni = 0; ni < 16 && ! presetUsesCategory; ++ni)
+            {
+                const auto* ch = proc.apvts.getRawParameterValue ("n" + String (ni));
+                const auto* en = proc.apvts.getRawParameterValue ("n" + String (ni) + "e");
+                const int fx = ch != nullptr ? params::fxFromChoice ((int) (ch->load() + 0.5f)) : -1;
+                if (en != nullptr && en->load() > 0.5f && params::isVisibleFx (fx)
+                    && djx::kFxCategory[fx] == cat)
+                    presetUsesCategory = true;
+            }
+        }
+        const Colour cc = catCol (cat);
+        fillRR   (g, b, 5.f, active ? cc.withAlpha (0.9f)
+                                  : presetUsesCategory ? cc.withAlpha (0.16f + 0.24f * presetFlash) : lunaPanelMd());
+        strokeRR (g, b, 5.f, cc, active ? 2.f : (presetUsesCategory ? 1.4f + 0.7f * presetFlash : 1.f));
+        catTabs[i]->setColour (TextButton::textColourOffId, active ? lunaBase() : (presetUsesCategory ? lunaText() : cc));
         catTabs[i]->setColour (TextButton::buttonColourId, Colours::transparentBlack);
         catTabs[i]->setColour (TextButton::buttonOnColourId, Colours::transparentBlack);
     }
+    // Keep the pad/rack relationship obvious: row Mix is the ceiling and the
+    // puck's proximity supplies the live amount. The secondary meter is live mix.
+    g.setColour (lunaSub().withAlpha (0.95f));
+    g.setFont (Font (9.f).boldened());
+    g.drawText ("PAD PROXIMITY -> LIVE MIX  |  SLIDER = MAX",
+                Rectangle<int> (8, 30, getWidth() - 16, 14), Justification::centredLeft);
     // FX rows
     for (auto& row : rows)
     {
         const bool sel    = (row.fxIdx == selFx);
         const float amt   = proc.apvts.getRawParameterValue (params::amtId (row.fxIdx))->load();
-        const bool  on    = amt > 0.01f;
+        const float liveMix = jlimit (0.f, 1.f, proc.uiAmt[row.fxIdx].load (std::memory_order_relaxed));
+        const bool  on    = amt > 0.01f;       // rack maximum is enabled
+        const bool  live  = liveMix > 0.015f;  // circle currently brings the instrument in
         const Colour col  = catCol (activeCat);
         auto rb = Rectangle<float>(
             (float) getLocalBounds().getX(),
             (float) row.nameBtn->getBounds().getY() - 3,
             (float) getLocalBounds().getWidth(),
             34.f);
-        fillRR   (g, rb, 5.f, sel ? col.withAlpha (0.14f) : lunaPanelLt());
-        strokeRR (g, rb, 5.f, sel ? col : lunaBorder(), sel ? 2.f : 1.f);
+        const float flash = presetFlash * (row.onPad ? 0.68f : (on ? 0.26f : 0.f));
+        fillRR   (g, rb, 5.f, sel ? col.withAlpha (0.18f + flash) : lunaPanelLt().brighter (flash));
+        strokeRR (g, rb, 5.f, sel ? col : col.withAlpha (0.22f + flash), sel ? 2.f : (1.f + flash));
         // dot
         const float dy = rb.getCentreY();
-        g.setColour (on ? col : lunaDim());
+        g.setColour (live ? col : (on ? col.withAlpha (0.42f) : lunaDim()));
         g.fillEllipse ((float) row.nameBtn->getX() - 14.f, dy - 4.f, 8.f, 8.f);
         // ON PAD badge
         if (row.onPad)
         {
             const float bx = (float) row.nameBtn->getRight() + 6.f;
-            auto badge = Rectangle<float> (bx, dy - 9.f, 44.f, 18.f);
+            auto badge = Rectangle<float> (bx, dy - 9.f, 40.f, 18.f);
             fillRR   (g, badge, 4.f, col.withAlpha (0.18f));
             strokeRR (g, badge, 4.f, col);
             g.setColour (col);
@@ -266,15 +338,20 @@ void FxCategoryPanel::paint (Graphics& g)
         g.setColour (on ? col : lunaDim());
         g.drawEllipse (pb, 2.f);
         if (on) g.fillEllipse (pb.reduced (4.f));
-        // amt bar track
+        // Two thin meters explain the relationship: the upper line is the
+        // configured maximum Mix, the bright lower line is the current XY-scaled mix.
         auto sb = row.amt->getBounds().toFloat();
+        const float barY = sb.getBottom() + 1.f;
         g.setColour (lunaBorder());
-        g.fillRoundedRectangle (sb.withHeight (4.f).withY (sb.getCentreY() - 2.f), 2.f);
-        g.setColour (col.withAlpha (0.8f));
-        g.fillRoundedRectangle (sb.withHeight (4.f).withY (sb.getCentreY() - 2.f)
-                                    .withWidth (sb.getWidth() * amt), 2.f);
+        g.fillRoundedRectangle (sb.getX(), barY, sb.getWidth(), 2.f, 1.f);
+        g.setColour (col.withAlpha (on ? 0.55f : 0.16f));
+        g.fillRoundedRectangle (sb.getX(), barY, sb.getWidth() * amt, 2.f, 1.f);
+        g.setColour (lunaBorder());
+        g.fillRoundedRectangle (sb.getX(), barY + 3.f, sb.getWidth(), 2.f, 1.f);
+        g.setColour (col.withAlpha (live ? 0.98f : 0.28f));
+        g.fillRoundedRectangle (sb.getX(), barY + 3.f, sb.getWidth() * liveMix, 2.f, 1.f);
         // FX name
-        row.nameBtn->setColour (TextButton::textColourOffId, on ? lunaText() : lunaSub());
+        row.nameBtn->setColour (TextButton::textColourOffId, live ? lunaText() : (on ? lunaSub() : lunaDim()));
         row.nameBtn->setColour (TextButton::buttonColourId, Colours::transparentBlack);
         row.nameBtn->setColour (TextButton::buttonOnColourId, Colours::transparentBlack);
     }
@@ -511,23 +588,22 @@ PlayPage::PlayPage (LunaFXProcessor& p)
     addAndMakeVisible (*depth);
     addAndMakeVisible (*feedback);
 
-    // Default node angles (evenly spaced, 8 nodes)
-    static const float kAngles[8]  = { 225.f, 270.f, 315.f, 0.f, 45.f, 90.f, 135.f, 180.f };
-    // Default FX assignments matching old TL/TR/BL/BR + 4 edge defaults
-    static const int   kDefFx[8]   = {
-        djx::Fx::OctDown, djx::Fx::Shimmer, djx::Fx::Scatter, djx::Fx::Fuzz,
-        djx::Fx::Filter,  djx::Fx::Riser,   djx::Fx::Chorus,  djx::Fx::Delay };
+    // Tracking model mirrors the 16 real nodes drawn and controlled by CircleXYPad.
     for (int i = 0; i < kNumNodes; ++i)
-    {
-        nodes[i].angleDeg = kAngles[i];
-        nodes[i].fxIndex  = kDefFx[i];
-    }
+        nodes[i].angleDeg = 90.f - 22.5f * (float) i;
     syncNodesToPreset();
 }
 
 void PlayPage::syncNodesToPreset()
 {
-    // 16-node system: node FX are read directly from n0..n15 params in CircleXYPad::paint().
+    for (int i = 0; i < kNumNodes; ++i)
+    {
+        const auto* ch = proc.apvts.getRawParameterValue ("n" + String (i));
+        const auto* en = proc.apvts.getRawParameterValue ("n" + String (i) + "e");
+        nodes[i].fxIndex = ch != nullptr ? params::fxFromChoice ((int) (ch->load() + 0.5f)) : -1;
+        nodes[i].active = en != nullptr && en->load() > 0.5f;
+    }
+    pad.flashPreset();
     repaint();
 }
 
@@ -537,7 +613,7 @@ void PlayPage::tick (float /*dt*/)
     for (int i = 0; i < kNumNodes; ++i)
     {
         const int fx = nodes[i].fxIndex;
-        nodes[i].activity = (fx >= 0 && fx < djx::kNumFx) ? proc.uiAmt[fx].load() : 0.f;
+        nodes[i].activity = params::isVisibleFx (fx) ? proc.uiAmt[fx].load() : 0.f;
         nodes[i].active   = nodes[i].activity > 0.02f;
     }
 
@@ -690,7 +766,7 @@ void PlayPage::drawRingPad (Graphics& g)
     g.setColour (lunaBorderBr());
     g.drawEllipse (c.x - R, c.y - R, R * 2.f, R * 2.f, 2.f);
 
-    // draw all 8 nodes
+    // draw all 16 rim nodes (8 per half-circle)
     for (const auto& n : nodes) drawNode (g, n, c, R);
 
     // hint text below ring (only when no FX active)
@@ -708,8 +784,8 @@ void PlayPage::drawRingPad (Graphics& g)
 
 void PlayPage::paint (Graphics& g)
 {
-    drawRingPad (g);
-
+    // CircleXYPad is the single source of truth for the ring. Do not draw a
+    // second decorative ring underneath it (duplicate nodes confused routing).
     // preset name top-right (avoid overlapping nav/tabs)
     if (shownPreset.isNotEmpty())
     {
@@ -762,7 +838,7 @@ SetupPage::SetupPage (LunaFXProcessor& p)
 void SetupPage::resized()
 {
     auto area = getLocalBounds().reduced (18, 12);
-    area.removeFromTop (48); // title
+    area.removeFromTop (48); // title and helper text
 
     const int gap = 8;
     auto knobsRow = area.removeFromTop (94);
@@ -783,17 +859,16 @@ void SetupPage::resized()
         toggles[(size_t) i]->setBounds (toggleRow.getX() + i * (tw + gap), toggleRow.getY(), tw, toggleRow.getHeight());
 
     area.removeFromTop (10);
-    const int cols = 4;
-    const int rows = 4;
+    constexpr int cols = 4, rows = 4;
     const int colW = (area.getWidth() - (cols - 1) * gap) / cols;
-    const int rowH = jmax (54, (area.getHeight() - (rows - 1) * 6) / rows);
+    const int rowH = (area.getHeight() - (rows - 1) * 6) / rows;
     for (int i = 0; i < 16; ++i)
     {
         const int row = i / cols, col = i % cols;
         auto cell = Rectangle<int> (area.getX() + col * (colW + gap),
                                     area.getY() + row * (rowH + 6), colW, rowH);
-        zoneCombos[(size_t) i]->setBounds (cell.removeFromTop (jmin (31, rowH - 20)));
-        zoneToggles[(size_t) i]->setBounds (cell.removeFromTop (22));
+        zoneCombos[(size_t) i]->setBounds (cell.removeFromTop (jmin (36, rowH - 24)));
+        zoneToggles[(size_t) i]->setBounds (cell.removeFromTop (24));
     }
 }
 
@@ -836,7 +911,7 @@ LunaFXEditor::LunaFXEditor (LunaFXProcessor& p)
                                    presets.refreshList(); };
     saveBtn  .onClick  = [this]
     {
-        showNav (7);
+        showNav (6);
         presets.refreshList();
         presets.saveCurrentPreset();
     };  // open the browser before placing the inline save field
@@ -859,8 +934,8 @@ LunaFXEditor::LunaFXEditor (LunaFXProcessor& p)
     content.addAndMakeVisible (*dryWet);
 
     // ---- left nav: the former PRE item now has its own SET page beside presets.
-    const char* navLabels[9] = { "XY","PITCH","FX","GLITCH","MOD","GEN","TIME","PRE","SET" };
-    for (int i = 0; i < 9; ++i)
+    const char* navLabels[8] = { "XY","PITCH","FX","GLITCH","MOD","TIME","PRE","SET" };
+    for (int i = 0; i < 8; ++i)
     {
         auto* btn = navBtns.add (new TextButton (navLabels[i]));
         btn->onClick = [this, i] { showNav (i); };
@@ -892,31 +967,25 @@ LunaFXEditor::~LunaFXEditor()
 
 void LunaFXEditor::showNav (int idx)
 {
+    idx = jlimit (0, 7, idx);
     activeNav = idx;
 
-    // Main play surface, presets, and setup are mutually exclusive pages.
-    play .setVisible (idx <= 6);
-    setup.setVisible (idx == 8);
-    presets.setVisible (idx == 7);
+    play.setVisible (idx <= 5);
+    setup.setVisible (idx == 7);
+    presets.setVisible (idx == 6);
 
-    // Right panel: category views keep their FX list; library/setup get the space.
-    if (idx >= 1 && idx <= 6)
-    {
-        fxCats.selectCategory (idx - 1);  // 1->PITCH(0), 2->FX(1) ...
-        fxCats.setVisible (true);
-        fxDetail.setVisible (true);
-    }
-    else
-    {
-        fxDetail.showFx (-1);
-        fxCats.setVisible (idx != 7 && idx != 8);
-        fxDetail.setVisible (idx != 7 && idx != 8);
-    }
+    if (idx >= 1 && idx <= 5)
+        fxCats.selectCategory (visibleCategoryForTab (idx - 1), true);
+
+    // The rack stays visible beside the live XY surface. Only PRE and SET use
+    // the full right-hand area, so a pad selection always has a matching menu.
+    const bool showRack = idx <= 5;
+    fxCats.setVisible (showRack);
+    fxDetail.setVisible (showRack);
 
     for (int i = 0; i < navBtns.size(); ++i)
     {
-        navBtns[i]->setColour (TextButton::textColourOffId,
-                                i == idx ? lunaText() : lunaDim());
+        navBtns[i]->setColour (TextButton::textColourOffId, i == idx ? lunaText() : lunaDim());
         navBtns[i]->setColour (TextButton::buttonColourId, Colours::transparentBlack);
     }
     repaint();
@@ -955,7 +1024,7 @@ void LunaFXEditor::paintContent (Graphics& g)
     fillRR   (g, vbadge, 4.f, Colour (0xff1a1c2a));
     strokeRR (g, vbadge, 4.f, lunaBorder());
     g.setFont (Font (9.f)); g.setColour (lunaSub());
-    g.drawText ("1.1.1", vbadge, Justification::centred);
+    g.drawText ("1.2.1", vbadge, Justification::centred);
 
     // ---- IN / OUT labels (above sliders)
     g.setFont (Font (10.f)); g.setColour (lunaSub());
@@ -973,8 +1042,8 @@ void LunaFXEditor::paintContent (Graphics& g)
     const int ny    = kTopH + activeNav * navH;
     g.setColour (Colour (0xff181a28));
     g.fillRect (0.f, (float) ny, (float) kNavW, (float) navH);
-    const Colour navAccent = (activeNav >= 1 && activeNav <= 6)
-                             ? catCol (activeNav - 1) : cAccent();
+    const Colour navAccent = (activeNav >= 1 && activeNav <= 5)
+                             ? catCol (visibleCategoryForTab (activeNav - 1)) : cAccent();
     g.setColour (navAccent);
     g.fillRect (0.f, (float) ny, 3.f, (float) navH);
 
@@ -991,7 +1060,7 @@ void LunaFXEditor::paintContent (Graphics& g)
     g.drawLine (0.f, H - 20.f, W, H - 20.f, 1.f);
     g.setFont (Font (9.f));
     g.setColour (lunaDim());
-    g.drawText ("LUNA FX  v1.1.1", Rectangle<float> (8.f, H - 18.f, 130.f, 16.f), Justification::centredLeft);
+    g.drawText ("LUNA FX  v1.2.1", Rectangle<float> (8.f, H - 18.f, 130.f, 16.f), Justification::centredLeft);
     g.drawText ("44100 Hz  \u2022  512 smp", Rectangle<float> (W * 0.5f - 80.f, H - 18.f, 160.f, 16.f), Justification::centred);
     g.setColour (catCol (3)); // green CPU indicator
     g.drawText ("CPU  --%", Rectangle<float> (W - 70.f, H - 18.f, 64.f, 16.f), Justification::centredLeft);

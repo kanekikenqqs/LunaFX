@@ -282,8 +282,13 @@ public:
             nEnable[ni] = p.apvts.getRawParameterValue ("n" + juce::String (ni) + "e");
         }
         img = Image (Image::ARGB, kN, kN, true);
+        lastPresetRevision = p.uiPresetRevision.load (std::memory_order_relaxed);
         setMouseCursor (MouseCursor::CrosshairCursor);
     }
+
+    // Brief highlight after a preset load so the user can see which assigned
+    // instruments became active. Called by preset navigation and state restore.
+    void flashPreset() { presetFlash = 1.f; repaint(); }
 
     Rectangle<float> outerCircle() const
     {
@@ -294,6 +299,14 @@ public:
 
     void tick (float dt)
     {
+        const auto revision = proc.uiPresetRevision.load (std::memory_order_relaxed);
+        if (revision != lastPresetRevision)
+        {
+            lastPresetRevision = revision;
+            presetFlash = 1.f;
+        }
+        else presetFlash = jmax (0.f, presetFlash - dt * 1.8f);
+
         float energy = 0.f;
         for (int i = 0; i < djx::kNumFx; ++i) energy += proc.uiAmt[i].load();
         energy = jmin (1.f, energy / 3.f);
@@ -339,11 +352,10 @@ public:
             const Point<float> np (c.x + std::cos (ang) * (R + 1.f),
                                    c.y - std::sin (ang) * (R + 1.f));
             const float wt = nw[i] * depth;
-            int        fx  = nChoice[i] ? (int) (nChoice[i]->load() + 0.5f) - 1 : -1;
-            bool       ena = nEnable[i] != nullptr && nEnable[i]->load() > 0.5f;
-            const Colour nc = (ena && fx >= 0 && fx < djx::kNumFx)
-                              ? params::catColour (djx::kFxCategory[fx])
-                              : Colour (0xff2a3045);
+            const int  fx  = nChoice[i] ? params::fxFromChoice ((int) (nChoice[i]->load() + 0.5f)) : -1;
+            const bool ena = nEnable[i] != nullptr && nEnable[i]->load() > 0.5f;
+            const bool validFx = params::isVisibleFx (fx);
+            const Colour nc = validFx ? params::catColour (djx::kFxCategory[fx]) : Colour (0xff2a3045);
 
             // Blend line puck -> node
             if (ena && wt > 0.02f)
@@ -354,6 +366,20 @@ public:
 
             // Node backing + fill
             const float nr = 4.5f + 7.f * wt;
+            if (presetFlash > 0.f && ena && validFx)
+            {
+                const float pulseGlow = presetFlash * (0.22f + 0.30f * (0.5f + 0.5f * std::sin (phase * 3.f + (float) i)));
+                g.setColour (nc.withAlpha (pulseGlow));
+                g.fillEllipse (np.x - nr - 8.f, np.y - nr - 8.f, (nr + 8.f) * 2.f, (nr + 8.f) * 2.f);
+                g.setColour (nc.withAlpha (pulseGlow * 1.5f));
+                g.drawEllipse (np.x - nr - 3.f, np.y - nr - 3.f, (nr + 3.f) * 2.f, (nr + 3.f) * 2.f, 1.3f);
+            }
+            const bool selectedNode = validFx && proc.uiSelectedFx.load (std::memory_order_relaxed) == fx;
+            if (selectedNode)
+            {
+                g.setColour (Colour (0xfff1edff).withAlpha (ena ? 0.95f : 0.45f));
+                g.drawEllipse (np.x - nr - 4.f, np.y - nr - 4.f, (nr + 4.f) * 2.f, (nr + 4.f) * 2.f, 1.8f);
+            }
             g.setColour (Colour (0xff080a10));
             g.fillEllipse (np.x - nr - 2.f, np.y - nr - 2.f, (nr + 2.f) * 2.f, (nr + 2.f) * 2.f);
             g.setColour (ena ? nc.withAlpha (0.25f + 0.75f * wt) : Colour (0xff2a3045));
@@ -362,12 +388,13 @@ public:
             g.drawEllipse (np.x - nr - 0.5f, np.y - nr - 0.5f, (nr + 0.5f) * 2.f, (nr + 0.5f) * 2.f, 1.f);
 
             // FX name (hover-quality: always show when weight > threshold)
-            if (ena && fx >= 0 && wt > 0.08f)
+            if (ena && validFx && wt > 0.08f)
             {
                 g.setColour (Colour (0xffc8d4e8).withAlpha (0.4f + 0.6f * jmin (1.f, wt * 2.f)));
                 g.setFont (Font (9.f, Font::plain));
-                const float lx = c.x + std::cos (ang) * (R + 20.f);
-                const float ly = c.y - std::sin (ang) * (R + 20.f);
+                const float labelR = jmax (0.f, R - 22.f);
+                const float lx = c.x + std::cos (ang) * labelR;
+                const float ly = c.y - std::sin (ang) * labelR;
                 g.drawText (String (djx::kFxNames[fx]), (int) lx - 32, (int) ly - 7, 64, 14,
                             Justification::centred, false);
             }
@@ -408,6 +435,31 @@ public:
     void mouseDown (const MouseEvent& e) override
     {
         springTimerOff();
+        nodeSelecting = false;
+        // Clicking a rim instrument opens its matching controls in the right rack;
+        // dragging the puck itself continues to change XY and per-node mix.
+        const auto in = innerCircle();
+        const auto c = in.getCentre();
+        const float R = in.getWidth() * 0.5f;
+        static constexpr float pi = 3.14159265358979323846f;
+        for (int i = 0; i < 16; ++i)
+        {
+            const float angle = pi * 0.5f - (float) i * (2.f * pi / 16.f);
+            const Point<float> np (c.x + std::cos (angle) * (R + 1.f),
+                                   c.y - std::sin (angle) * (R + 1.f));
+            if (e.position.getDistanceFrom (np) <= 12.f)
+            {
+                const int fx = nChoice[i] != nullptr ? params::fxFromChoice ((int) (nChoice[i]->load() + 0.5f)) : -1;
+                if (params::isVisibleFx (fx))
+                {
+                    proc.uiSelectedFx.store (fx, std::memory_order_relaxed);
+                    nodeSelecting = true;
+                    repaint();
+                    return;
+                }
+            }
+        }
+
         px->beginChangeGesture(); py->beginChangeGesture();
         gestureOpen = true;
         setFromMouse (e.position);
@@ -417,9 +469,10 @@ public:
             pe->beginChangeGesture(); pe->setValueNotifyingHost (1.f);
         }
     }
-    void mouseDrag (const MouseEvent& e) override { setFromMouse (e.position); }
+    void mouseDrag (const MouseEvent& e) override { if (! nodeSelecting) setFromMouse (e.position); }
     void mouseUp (const MouseEvent&) override
     {
+        if (nodeSelecting) { nodeSelecting = false; return; }
         if (touchEngaged) { pe->setValueNotifyingHost (0.f); pe->endChangeGesture(); touchEngaged = false; }
         if (isOn (pSpring)) startTimerHz (60);
         else closeGestures();
@@ -499,7 +552,9 @@ private:
     std::atomic<float> *nChoice[16], *nEnable[16]; // cached to avoid per-frame string lookup crash
     Image img;
     float phase = 0.f;
-    bool touchEngaged = false, gestureOpen = false;
+    float presetFlash = 0.f;
+    unsigned int lastPresetRevision = 0;
+    bool touchEngaged = false, gestureOpen = false, nodeSelecting = false;
 };
 
 // ======================================================================================

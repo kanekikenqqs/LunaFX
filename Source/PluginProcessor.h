@@ -8,12 +8,14 @@
 #define DJX_RAW_PARAMS(X) \
     X(bypass) X(kill) X(inGain) X(outGain) X(dryWet) X(engage) X(fade) X(midi) X(autoRand) X(chaos) \
     X(padX) X(padY) X(padDepth) X(padTouch) X(padSpring) \
-    X(pitchWin) X(harmInt) X(whamPos) X(diveDepth) X(diveTime) X(diveCurve) X(detCents) \
-    X(fuzzDrive) X(fuzzTone) X(crushBits) X(crushRate) X(ringFreq) X(filtMode) X(filtFreq) X(filtRes) X(filtRate) X(filtDepth) X(wahSens) X(radioLow) X(radioHigh) X(radioDrive) \
+    X(pitchWin) X(harmDown) X(harmUp) X(whamPos) X(diveDepth) X(diveTime) X(diveCurve) X(detCents) \
+    X(fuzzDrive) X(fuzzTone) X(tapeDrive) X(tapeTone) X(tapeWear) X(tapeBias) X(ringFreq) X(filtMode) X(filtFreq) X(filtRes) X(filtRate) X(filtDepth) X(wahSens) X(radioLow) X(radioHigh) X(radioDrive) \
     X(glDiv) X(tsTime) X(frzSize) X(grainSize) X(grainDensity) X(grainPitch) X(grainJitter) \
     X(choRate) X(choDepth) X(flRate) X(flFb) X(phRate) X(phFb) X(trDiv) X(trDepth) X(vibRate) X(vibDepth) \
-    X(subFreq) X(subDecay) X(risTime) X(risMode) X(risStart) X(risEnd) X(risNoise) X(risTone) \
-    X(dlyDiv) X(dlyMs) X(dlyFb) X(dlyTone) X(dlyPing) X(dlyWidth) X(dlySat) X(dlyMod) X(revDecay) X(revDamp) X(revPre) X(revSize) X(revRoom) X(shDecay) X(shFb) X(shInt)
+    X(deathyRate) X(deathyDepth) X(deathyTone) X(deathyRes) X(hauntRate) X(hauntDepth) X(hauntTone) X(hauntRes) \
+    X(dlyDiv) X(dlyMs) X(dlyFb) X(dlyTone) X(dlyPing) X(dlyWidth) X(dlySat) X(dlyMod) X(dlyDuck) \
+    X(revDecay) X(revDamp) X(revPre) X(revSize) X(revRoom) X(revMod) X(revWidth) X(revFreeze) \
+    X(shDecay) X(shFb) X(shInt) X(shTone) X(shWidth) X(shMod)
 
 class LunaFXProcessor : public juce::AudioProcessor,
                         private juce::AsyncUpdater
@@ -53,6 +55,8 @@ public:
 
     std::atomic<float> uiAmt[djx::kNumFx];
     std::atomic<float> uiEngage { 0.f };
+    std::atomic<int> uiSelectedFx { -1 };
+    std::atomic<unsigned int> uiPresetRevision { 0 };
 
 private:
     void handleAsyncUpdate() override { randomizeNow(); }

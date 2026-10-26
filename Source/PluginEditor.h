@@ -35,7 +35,7 @@ public:
 private:
     LunaFXProcessor& proc;
     int               currentFx = -1;
-    // up to 8 knobs for the selected FX detail params
+    // dynamic grid for each selected FX: Mix plus all effect-specific controls
     std::vector<std::unique_ptr<ui::ParamControl>> knobs;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FxDetailPanel)
@@ -57,7 +57,7 @@ public:
     // returns currently selected FX index (-1 = none)
     int selectedFx() const { return selFx; }
 
-    void selectCategory (int cat);   // public – called by LunaFXEditor
+    void selectCategory (int cat, bool clearSelection = false);   // public – called by LunaFXEditor
 
 private:
     void buildCategoryRows();
@@ -66,8 +66,11 @@ private:
     FxDetailPanel&   detail;
     int activeCat = 0;
     int selFx     = -1;
+    int lastProgram = -1;
+    unsigned int lastPresetRevision = 0;
+    float presetFlash = 0.f;
 
-    // category tab buttons (6)
+    // Visible categories: Pitch, FX, Glitch, Mod, Time (internal reserved/GEN category removed)
     juce::OwnedArray<juce::TextButton> catTabs;
     // per-FX row: name label, amount slider, power toggle
     struct FxRow
@@ -159,8 +162,8 @@ private:
                    prevBtn    { ui::IconButton::Prev    },
                    nextBtn    { ui::IconButton::Next    };
 
-    // 8 ring nodes (replaces CornerReadout)
-    static constexpr int kNumNodes = 8;
+    // 16 rim nodes (8 per half-circle), one for each assignable FX zone
+    static constexpr int kNumNodes = 16;
     RingPadNode nodes[kNumNodes];
 
     // drag state for node assignment
@@ -207,7 +210,7 @@ private:
     };
     void paintContent (juce::Graphics&);
     void timerCallback() override;
-    void showNav (int idx);  // 0=XY 1=PITCH 2=FX 3=GLITCH 4=MOD 5=GEN 6=TIME 7=PRE 8=SET
+    void showNav (int idx);  // 0=XY 1=PITCH 2=FX 3=GLITCH 4=MOD 5=TIME 6=PRE 7=SET
 
     LunaFXProcessor& proc;
     ui::LunaLnF      lnf;

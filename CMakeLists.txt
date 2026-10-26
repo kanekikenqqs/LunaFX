@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(LunaFX VERSION 1.1.1)
+project(LunaFX VERSION 1.2.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -61,3 +61,4 @@ target_link_libraries(LunaFX
 # --- optional: DSP unit tests (no JUCE needed) ------------------------------
 add_executable(accentfx_dsp_test EXCLUDE_FROM_ALL tests/test_engine.cpp)
 add_executable(accentfx_dsp_smoke EXCLUDE_FROM_ALL tests/test_engine_smoke.cpp)
+add_executable(accentfx_xy_test EXCLUDE_FROM_ALL tests/test_xy_weights.cpp)

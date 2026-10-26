@@ -3,7 +3,7 @@
 //
 //  Signal flow (stereo):
 //    in -> [Pitch bus (parallel voices)] -> [FX inserts] -> [Glitch inserts]
-//       -> [Modulation inserts] -> [Generators (sub drop / riser)]
+//       -> [Modulation inserts, including vintage LFO filter instruments]
 //       -> engage crossfade (dry <-> effected)
 //       -> sends: Delay / Reverb / Shimmer (fed only while engaged => tails ring out)
 //    out = crossfade + sends
@@ -24,16 +24,16 @@ namespace Fx
 {
 enum : int
 {
-    // Pitch
-    OctDown = 0, OctUp, Harmony, Whammy, Dive, Detune,
+    // One combined harmonizer uses two independently tunable pitch voices.
+    // The next two slots are retained internally for old session index stability,
+    // but are hidden from the UI and no longer process audio.
+    Harmony = 0, ReservedPitchA, ReservedPitchB, Whammy, Dive, Detune,
     // FX
-    Fuzz, Crush, RingMod, Filter, Radio, AutoWah,
+    Fuzz, TapeDistortion, RingMod, Filter, Radio, AutoWah,
     // Glitch
     Stutter, Reverse, TapeStop, Freeze, Scatter, Granular,
     // Modulation
-    Chorus, Flanger, Phaser, Tremolo, Vibrato,
-    // Generators
-    SubDrop, Riser,
+    Chorus, Flanger, Phaser, Tremolo, Vibrato, LfoDeathy, LfoHauntedRadio,
     // Time
     Delay, Reverb, Shimmer,
     Count
@@ -42,15 +42,16 @@ enum : int
 constexpr int kNumFx = Fx::Count;
 
 inline constexpr const char* kFxNames[kNumFx] = {
-    "Oct Down", "Oct Up", "Harmony", "Whammy", "Dive Bomb", "Detune",
-    "Fuzz", "Bit Crush", "Ring Mod", "Filter", "Radio", "Auto Wah",
+    "Harmony", "Reserved", "Reserved", "Whammy", "Dive Bomb", "Detune",
+    "Fuzz", "Tape Distortion", "Ring Mod", "Filter", "Radio", "Auto Wah",
     "Stutter", "Reverse", "Tape Stop", "Freeze", "Scatter", "Granular",
     "Chorus", "Flanger", "Phaser", "Tremolo", "Vibrato",
-    "Sub Drop", "Riser",
+    "LFO Deathy", "LFO Haunted Radio",
     "Delay", "Reverb", "Shimmer" };
 
-// category of every effect: 0 pitch, 1 fx, 2 glitch, 3 mod, 4 gen, 5 time
-inline constexpr int kFxCategory[kNumFx] = { 0,0,0,0,0,0, 1,1,1,1,1,1, 2,2,2,2,2,2, 3,3,3,3,3, 4,4, 5,5,5 };
+// -1 hides the two internal legacy pitch slots while preserving project parameter indices.
+// category of visible effects: 0 pitch, 1 fx, 2 glitch, 3 mod, 5 time.
+inline constexpr int kFxCategory[kNumFx] = { 0,-1,-1,0,0,0, 1,1,1,1,1,1, 2,2,2,2,2,2, 3,3,3,3,3, 3,3, 5,5,5 };
 
 constexpr int kNumDivs = 9;
 inline constexpr float kDivBeats[kNumDivs] = { 2.f, 1.5f, 1.f, 0.75f, 0.5f, 1.f / 3.f, 0.25f, 1.f / 6.f, 0.125f };
@@ -69,11 +70,14 @@ struct Settings
     bool  engaged = false;
     float fadeMs = 8.f, inGain = 1.f, outGain = 1.f;
 
-    // pitch
-    float pitchWinMs = 50.f, harmSemis = 7.f, whamSemis = -12.f, diveSemis = 24.f, diveTime = 1.2f, detCents = 18.f;
+    // Pitch: the Harmony instrument blends one down-shifted and one up-shifted voice.
+    float pitchWinMs = 50.f, harmDownSemis = -12.f, harmUpSemis = 12.f;
+    float whamSemis = -12.f, diveSemis = 24.f, diveTime = 1.2f, detCents = 18.f;
     int diveCurve = 1;
-    // fx
-    float fuzzDrive = 0.6f, fuzzTone = 0.72f, crushBits = 6.f, crushRate = 8.f, ringFreq = 220.f;
+    // FX
+    float fuzzDrive = 0.6f, fuzzTone = 0.72f;
+    float tapeDrive = 0.45f, tapeTone = 0.62f, tapeWear = 0.18f, tapeBias = 0.f;
+    float ringFreq = 220.f;
     int   filtMode = 0;
     float filtFreq = 800.f, filtRes = 0.5f, filtRate = 2.f, filtDepth = 0.5f, wahSens = 0.6f;
     float radioLow = 650.f, radioHigh = 3200.f, radioDrive = 8.f;
@@ -84,17 +88,19 @@ struct Settings
     // modulation
     float choRate = 0.6f, choDepth = 0.5f, flRate = 0.3f, flFb = 0.6f, phRate = 0.4f, phFb = 0.5f;
     float trBeats = 0.5f, trDepth = 1.f, vibRate = 5.f, vibDepth = 0.5f;
-    // generators
-    float subFreq = 55.f, subDecay = 1.2f, risTime = 2.f;
-    int risMode = 2;
-    float risStart = 180.f, risEnd = 10000.f, risNoise = 0.8f, risTone = 0.35f;
-    // time
+    // Vintage LFO filter instruments (former generator slots, now purely audio effects).
+    float deathyRate = 0.22f, deathyDepth = 0.78f, deathyTone = 0.38f, deathyRes = 0.72f;
+    float hauntRate = 0.11f, hauntDepth = 0.68f, hauntTone = 0.58f, hauntRes = 0.62f;
+    // Time FX
     bool  dlyFree = false;
     float dlyBeats = 0.75f, dlyMs = 350.f, dlyFb = 0.45f, dlyTone = 5000.f, dlyPing = 0.7f;
-    float dlyWidth = 0.65f, dlySat = 0.15f, dlyMod = 0.15f;
+    float dlyWidth = 0.65f, dlySat = 0.15f, dlyMod = 0.15f, dlyDuck = 0.f;
     int revRoom = 1;
     float revDecay = 3.5f, revDamp = 0.5f, revPreMs = 20.f, revSize = 1.f;
+    float revMod = 0.5f, revWidth = 0.5f;
+    bool revFreeze = false;
     float shDecay = 8.f, shFb = 0.5f, shSemis = 12.f;
+    float shTone = 7000.f, shWidth = 0.5f, shMod = 0.f;
 };
 
 namespace detail
@@ -182,6 +188,8 @@ struct FdnReverb
     AP ap[4];
     float len[N] {}, baseLen[N] {}, maxLen[N] {}, lp[N] {}, gain[N] {}, ph[N] {}, inc[N] {};
     float dampC = 0.6f, preS = 0.f, inj = 0.5f;
+    float modDepthSamples = 9.f, stereoWidth = 0.5f;
+    bool freezeMode = false;
     double sr = 48000.0;
 
     void init (double sampleRate, float size)
@@ -209,8 +217,12 @@ struct FdnReverb
         pre.clear(); for (auto& a : ap) a.d.clear();
         for (int i = 0; i < N; ++i) { line[i].clear(); lp[i] = 0.f; }
     }
-    void setParams (float decaySec, float damp, float preMs, int roomType = 1, float size = 1.f)
+    void setParams (float decaySec, float damp, float preMs, int roomType = 1, float size = 1.f,
+                    float modulation = 0.5f, float width = 0.5f, bool freeze = false)
     {
+        freezeMode = freeze;
+        modDepthSamples = 18.f * clampf (modulation, 0.f, 1.f); // 0.5 preserves the classic 9-sample motion
+        stereoWidth = clampf (width, 0.f, 1.f);
         static const float roomScale[7] = { 0.72f, 1.00f, 0.86f, 0.92f, 1.42f, 0.64f, 1.72f };
         static const float roomDamp[7]  = { 0.08f, 0.00f, -0.12f, 0.04f, 0.18f, -0.18f, 0.25f };
         const int rt = std::max (0, std::min (6, roomType));
@@ -220,12 +232,12 @@ struct FdnReverb
         for (int i = 0; i < N; ++i)
         {
             len[i] = clampf (baseLen[i] * scale, 96.f, maxLen[i] - 12.f);
-            gain[i] = std::pow (10.f, -3.f * len[i] / (decaySec * (float) sr));
+            gain[i] = freezeMode ? 0.9992f : std::pow (10.f, -3.f * len[i] / (decaySec * (float) sr));
             gm += gain[i];
         }
         gm /= (float) N;
-        inj = 1.6f * std::sqrt (std::max (0.02f, 1.f - gm * gm));
-        dampC = 1.f - 0.8f * clampf (damp + roomDamp[rt], 0.f, 1.f);
+        inj = freezeMode ? 0.018f : 1.6f * std::sqrt (std::max (0.02f, 1.f - gm * gm));
+        dampC = freezeMode ? 0.995f : 1.f - 0.8f * clampf (damp + roomDamp[rt], 0.f, 1.f);
         preS = clampf (preMs * 0.001f * (float) sr, 0.f, (float) (0.29 * sr));
     }
     inline void process (float inL, float inR, float& oL, float& oR)
@@ -239,7 +251,7 @@ struct FdnReverb
         for (int i = 0; i < N; ++i)
         {
             ph[i] += inc[i]; if (ph[i] >= 1.f) ph[i] -= 1.f;
-            const float d = line[i].read ((double) (len[i] + 12.f + 9.f * std::sin (kTwoPi * ph[i])));
+            const float d = line[i].read ((double) (len[i] + 12.f + modDepthSamples * std::sin (kTwoPi * ph[i])));
             lp[i] += dampC * (d - lp[i]);
             y[i] = lp[i] * gain[i];
         }
@@ -249,19 +261,22 @@ struct FdnReverb
         const float s = 0.35355339f;
         for (int i = 0; i < N; ++i) line[i].push (x * inj + y[i] * s);
 
-        oL = (lp[0] - lp[1] + lp[2] - lp[3] + lp[4] - lp[5] + lp[6] - lp[7]) * 0.45f;
-        oR = (lp[0] + lp[1] - lp[2] - lp[3] + lp[4] + lp[5] - lp[6] - lp[7]) * 0.45f;
+        const float rawL = (lp[0] - lp[1] + lp[2] - lp[3] + lp[4] - lp[5] + lp[6] - lp[7]) * 0.45f;
+        const float rawR = (lp[0] + lp[1] - lp[2] - lp[3] + lp[4] + lp[5] - lp[6] - lp[7]) * 0.45f;
+        const float mid = 0.5f * (rawL + rawR);
+        const float side = 0.5f * (rawL - rawR) * (0.3f + 1.4f * stereoWidth);
+        oL = mid + side; oR = mid - side;
     }
 };
 
 struct StereoDelay
 {
     DelayLine l, r;
-    float lpL = 0, lpR = 0, hpL = 0, hpR = 0, dt = 0, modPhase = 0;
+    float lpL = 0, lpR = 0, hpL = 0, hpR = 0, dt = 0, modPhase = 0, duckEnv = 0.f;
     void init (double sr) { l.init ((int) (sr * 3.0) + 16); r.init ((int) (sr * 3.0) + 16); clear(); }
-    void clear() { l.clear(); r.clear(); lpL = lpR = hpL = hpR = 0.f; dt = 0.f; modPhase = 0.f; }
+    void clear() { l.clear(); r.clear(); lpL = lpR = hpL = hpR = 0.f; dt = 0.f; modPhase = 0.f; duckEnv = 0.f; }
     inline void run (float inL, float inR, float dtTarget, float fb, float toneC, float hpC,
-                     float ping, float width, float saturation, float modulation, float sampleRate,
+                     float ping, float width, float saturation, float modulation, float ducking, float sampleRate,
                      float& oL, float& oR)
     {
         if (dt < 1.f) dt = dtTarget;
@@ -284,6 +299,11 @@ struct StereoDelay
         const float mid = 0.5f * (dl + dr);
         const float side = 0.5f * (dl - dr) * (0.25f + 1.5f * clampf (width, 0.f, 1.f));
         oL = mid + side; oR = mid - side;
+        const float inputEnv = 0.5f * (std::fabs (inL) + std::fabs (inR));
+        const float duckCoef = 1.f - std::exp (-1.f / ((inputEnv > duckEnv ? 0.012f : 0.18f) * std::max (8000.f, sampleRate)));
+        duckEnv += (inputEnv - duckEnv) * duckCoef;
+        const float duckGain = 1.f - clampf (duckEnv * 3.f * clampf (ducking, 0.f, 1.f), 0.f, 0.88f);
+        oL *= duckGain; oR *= duckGain;
     }
 };
 } // namespace detail
@@ -322,15 +342,17 @@ public:
             stBuf[c].clear(); rvBuf[c].clear(); scBuf[c].clear(); tsBuf[c].clear(); fzBuf[c].clear(); grBuf[c].clear();
             choD[c].clear(); flD[c].clear(); vibD[c].clear();
             fltSvf[c].reset(); radHp[c].reset(); radLp[c].reset(); wahSvf[c].reset();
-            crushHold[c] = crushCnt[c] = flFbS[c] = phFbS[c] = fuzzLp[c] = fuzzHp[c] = 0.f;
+            deathySvf[c].reset(); hauntSvf[c].reset();
+            tapeMem[c] = tapeLp[c] = flFbS[c] = phFbS[c] = fuzzLp[c] = fuzzHp[c] = 0.f;
             for (auto& z : phZ[c]) z = 0.f;
         }
         dly.clear(); rev.clear(); shRev.clear(); shPs.clear();
         am.fill (0.f); prevAct.fill (false); prevEngaged = false;
         gEng = 0.f; inG = outG = 1.f;
         shFbS = shLp = shHp = 0.f; wahEnv = 0.f;
-        stActive = tsActive = fzActive = rsActive = diveAct = false;
-        stMix = tsMix = fzMix = 0.f; subEnv = 0.f; rsEnv = 0.f; rsT = 0.f; diveEnv = 0.f;
+        stActive = tsActive = fzActive = diveAct = false;
+        stMix = tsMix = fzMix = 0.f; diveEnv = 0.f;
+        tapePhase = deathyPhase = hauntPhase = shPhase = 0.f;
         grPhase[0] = 0.f; grPhase[1] = 0.5f; grOffset[0] = grOffset[1] = 0.f;
         rvIdx = scIdx = -1; whamR = 1.f; winS = 0.f;
     }
@@ -354,7 +376,6 @@ public:
         fadeSamples = std::max (8, (int) (0.003 * sr));
 
         // ---- block constants
-        ratioHarm = semiToRatio (S.harmSemis);
         detUp = std::exp2 (S.detCents / 1200.f); detDn = 1.f / detUp;
         whamTarget = semiToRatio (S.whamSemis);
         winTarget = clampf (S.pitchWinMs * 0.001f * fsr, 64.f, 0.15f * fsr);
@@ -364,11 +385,11 @@ public:
                                           : (float) (S.dlyBeats * 60.0 / T.bpm * sr);
         const float toneC = 1.f - std::exp (-kTwoPi * clampf (S.dlyTone, 200.f, 18000.f) / fsr);
         const float hpC   = 1.f - std::exp (-kTwoPi * 140.f / fsr);
-        rev.setParams (S.revDecay, S.revDamp, S.revPreMs, S.revRoom, S.revSize);
-        shRev.setParams (S.shDecay, 0.55f, 30.f, 4, 1.15f);
-        const float shRatio = semiToRatio (S.shSemis);
+        rev.setParams (S.revDecay, S.revDamp, S.revPreMs, S.revRoom, S.revSize,
+                       S.revMod, S.revWidth, S.revFreeze);
+        shRev.setParams (S.shDecay, 0.55f, 30.f, 4, 1.15f, S.shMod, S.shWidth, false);
         const float shWin = 0.05f * fsr;
-        const float shLpC = 1.f - std::exp (-kTwoPi * 7000.f / fsr);
+        const float shLpC = 1.f - std::exp (-kTwoPi * clampf (S.shTone, 1200.f, 16000.f) / fsr);
         const float shFb = clampf (S.shFb, 0.f, 0.85f) * 0.8f;
         const float shHpC = 1.f - std::exp (-kTwoPi * 220.f / fsr);
 
@@ -413,10 +434,6 @@ public:
         }
         else fzActive = false;
 
-        if (act[Fx::SubDrop] && ! prevAct[Fx::SubDrop]) { subEnv = 1.f; subT = 0.f; subPh = 0.f; }
-        subCoef = std::exp (-6.9f / (std::max (0.1f, S.subDecay) * fsr));
-        if (act[Fx::Riser] && ! prevAct[Fx::Riser]) { rsT = 0.f; rsEnv = 0.f; }
-        rsActive = act[Fx::Riser];
         for (int i = 0; i < kNumFx; ++i) prevAct[(size_t) i] = act[i];
 
         // ---- sample loop
@@ -435,7 +452,6 @@ public:
             fxStage (v);
             glitchStage (v, beat, T.bpm);
             modStage (v, beat);
-            genStage (v);
 
             float core[2], send[2];
             for (int c = 0; c < 2; ++c)
@@ -447,14 +463,20 @@ public:
             // time based sends (outputs are NOT gated => trails)
             float dL, dR, rL, rR, sL, sR;
             dly.run (send[0], send[1], dlyTarget, clampf (S.dlyFb, 0.f, 0.97f), toneC, hpC,
-                    clampf (S.dlyPing, 0.f, 1.f), S.dlyWidth, S.dlySat, S.dlyMod, fsr, dL, dR);
+                    clampf (S.dlyPing, 0.f, 1.f), S.dlyWidth, S.dlySat, S.dlyMod, S.dlyDuck, fsr, dL, dR);
             rev.process (send[0], send[1], rL, rR);
 
             const float shIn = 0.5f * (send[0] + send[1]);
             shRev.process (shIn + shFbS, shIn + shFbS, sL, sR);
+            const float shMid = 0.5f * (sL + sR);
+            const float shSide = 0.5f * (sL - sR) * (0.3f + 1.4f * clampf (S.shWidth, 0.f, 1.f));
+            sL = shMid + shSide; sR = shMid - shSide;
             shPs.push (0.5f * (sL + sR));
-            shLp += shLpC * (shPs.read (shRatio, shWin) - shLp);   // low-pass: keeps the loop from piling up HF
-            shHp += shHpC * (shLp - shHp);                          // high-pass: no DC / sub build-up in the loop
+            shPhase += (0.08f + 0.22f * clampf (S.shMod, 0.f, 1.f)) / fsr;
+            if (shPhase >= 1.f) shPhase -= 1.f;
+            const float shRatio = semiToRatio (S.shSemis + std::sin (kTwoPi * shPhase) * 1.5f * clampf (S.shMod, 0.f, 1.f));
+            shLp += shLpC * (shPs.read (shRatio, shWin) - shLp);   // tone control prevents HF feedback build-up
+            shHp += shHpC * (shLp - shHp);                          // remove DC / sub build-up from the loop
             shFbS = std::tanh (shLp - shHp) * shFb;
 
             const float aD = am[Fx::Delay] * 0.8f, aR = am[Fx::Reverb] * 0.8f, aS = am[Fx::Shimmer] * 0.9f;
@@ -498,12 +520,19 @@ private:
         }
         const float diveRatio = semiToRatio (-s->diveSemis * e);
 
-        float a[kPitchVoices], S = 0.f;
-        for (int i = 0; i < kPitchVoices; ++i) { a[i] = am[(size_t) i]; S += a[i]; }
+        // The first UI instrument is a single Harmony section with two voices.
+        // Its one Mix amount is shared by the down/up voices; the next two array
+        // positions are legacy-reserved and intentionally silent.
+        const float hAmt = am[Fx::Harmony];
+        float a[kPitchVoices] = { hAmt * 0.5f, hAmt * 0.5f, 0.f,
+                                  am[Fx::Whammy], am[Fx::Dive], am[Fx::Detune] };
+        float S = 0.f; for (int i = 0; i < kPitchVoices; ++i) S += a[i];
         if (S < 0.0005f) return;
 
-        const float ratios[kPitchVoices][2] = { { 0.5f, 0.5f }, { 2.f, 2.f }, { ratioHarm, ratioHarm },
-                                                { whamR, whamR }, { diveRatio, diveRatio }, { detUp, detDn } };
+        const float ratios[kPitchVoices][2] = {
+            { semiToRatio (s->harmDownSemis), semiToRatio (s->harmDownSemis) },
+            { semiToRatio (s->harmUpSemis),   semiToRatio (s->harmUpSemis)   },
+            { 1.f, 1.f }, { whamR, whamR }, { diveRatio, diveRatio }, { detUp, detDn } };
         const float scale = S > 1.f ? 1.f / std::sqrt (S) : 1.f;
         const float dryW = std::max (0.f, 1.f - S);
         const float win = clampf (winS, 64.f, 0.15f * (float) sr);
@@ -545,16 +574,28 @@ private:
             }
         }
 
-        a = am[Fx::Crush];
+        // Tape Distortion: smooth magnetic-style saturation, mild hysteresis,
+        // controllable high-frequency loss and subtle wear modulation. At 0 Mix
+        // it is fully transparent; no bit reduction is performed.
+        a = am[Fx::TapeDistortion];
         if (a > 0.0005f)
         {
-            const float rate = std::max (1.f, s->crushRate);
-            const float lv = std::exp2 (std::max (2.f, s->crushBits) - 1.f);
+            const float drive = 1.f + 19.f * std::pow (clampf (s->tapeDrive, 0.f, 1.f), 1.35f);
+            const float bias = clampf (s->tapeBias, -1.f, 1.f) * 0.18f;
+            const float toneHz = 1200.f + 11800.f * clampf (s->tapeTone, 0.f, 1.f);
+            const float toneC = 1.f - std::exp (-kTwoPi * toneHz / fsr);
+            tapePhase += (0.18f + 0.9f * clampf (s->tapeWear, 0.f, 1.f)) / fsr;
+            if (tapePhase >= 1.f) tapePhase -= 1.f;
+            const float wow = 1.f + clampf (s->tapeWear, 0.f, 1.f) *
+                              (0.035f * std::sin (kTwoPi * tapePhase) + 0.012f * std::sin (kTwoPi * tapePhase * 6.3f));
             for (int c = 0; c < 2; ++c)
             {
-                crushCnt[c] += 1.f;
-                if (crushCnt[c] >= rate) { crushCnt[c] -= rate; crushHold[c] = std::round (v[c] * lv) / lv; }
-                v[c] = lerpf (v[c], crushHold[c], a);
+                const float x = v[c] * drive * wow + bias;
+                const float magnet = std::tanh (x + 0.08f * tapeMem[c]) - std::tanh (bias);
+                tapeMem[c] += 0.035f * (magnet - tapeMem[c]);
+                tapeLp[c] += toneC * (magnet - tapeLp[c]);
+                const float saturated = tapeLp[c] * (0.96f - 0.12f * s->tapeDrive);
+                v[c] = lerpf (v[c], saturated, a);
             }
         }
 
@@ -815,58 +856,46 @@ private:
                 v[c] = lerpf (v[c], vibD[c].read ((double) d), a);
             }
 
-        // Tremolo (tempo synced)
-        a = am[Fx::Tremolo];
+        // LFO-DEATHY: dark, resonant vintage sweep with asymmetric movement.
+        a = am[Fx::LfoDeathy];
+        deathyPhase += clampf (s->deathyRate, 0.02f, 8.f) / fsr;
+        if (deathyPhase >= 1.f) deathyPhase -= 1.f;
         if (a > 0.0005f)
         {
-            double ph = beat / (double) s->trBeats; ph -= std::floor (ph);
-            const float g = 1.f - a * clampf (s->trDepth, 0.f, 1.f) * 0.5f * (1.f - std::cos (kTwoPi * (float) ph));
-            v[0] *= g; v[1] *= g;
-        }
-    }
-
-    // ------------------------------------------------------------- GENERATORS
-    void genStage (float* v)
-    {
-        using namespace detail;
-        const float fsr = (float) sr;
-        float y = 0.f;
-
-        // Sub drop: sine that falls from ~3.5x to the target frequency, exponential decay
-        if (subEnv > 0.00002f)
-        {
-            const float f = s->subFreq * (1.f + 2.5f * std::exp (-subT / 0.045f));
-            subPh += f / fsr; subPh -= std::floor (subPh);
-            const float atk = std::min (1.f, subT / 0.002f);
-            y += std::sin (kTwoPi * subPh) * subEnv * atk * 0.9f * am[Fx::SubDrop];
-            subEnv *= subCoef; subT += 1.f / fsr;
-        }
-
-        // Riser: selectable noise / tone / hybrid source with adjustable sweep range.
-        if (rsActive) rsT += 1.f / fsr;
-        const float prog = clampf (rsT / std::max (0.25f, s->risTime), 0.f, 1.f);
-        const float curve = prog * prog * (3.f - 2.f * prog);
-        if (rsActive) rsEnv = curve;
-        else { rsEnv *= std::exp (-1.f / (0.12f * fsr)); if (rsEnv < 0.0005f) rsT = 0.f; }
-        const float ar = am[Fx::Riser];
-        if (ar * rsEnv > 0.0003f)
-        {
-            const float f0 = clampf (s->risStart, 40.f, 0.4f * fsr);
-            const float f1 = clampf (s->risEnd, f0 + 100.f, 0.45f * fsr);
-            const float fc = clampf (f0 * std::pow (f1 / f0, curve), 20.f, 0.45f * fsr);
+            const float wave = 0.72f * std::sin (kTwoPi * deathyPhase) +
+                               0.28f * std::sin (kTwoPi * deathyPhase * 0.5f + 0.8f);
+            const float fc = clampf (260.f * std::exp2 (wave * 3.9f * clampf (s->deathyDepth, 0.f, 1.f)), 35.f, 0.42f * fsr);
             const float g = std::tan (kPi * fc / fsr);
-            const float toneHz = 45.f + 850.f * std::pow (curve, 1.4f);
-            rsPh += toneHz / fsr; rsPh -= std::floor (rsPh);
-            const float noise = rng.bi() * clampf (s->risNoise, 0.f, 1.f);
-            const float tone = std::sin (kTwoPi * rsPh) * clampf (s->risTone, 0.f, 1.f);
-            const float source = s->risMode == 1 ? tone : (s->risMode == 0 ? noise : noise * 0.8f + tone * 0.35f);
-            float lp, bp, hp;
-            rsSvf.run (source, g, 0.4f, lp, bp, hp);
-            const float noiseLayer = bp * (s->risMode == 1 ? 0.15f : 0.75f);
-            const float toneLayer = tone * (s->risMode == 0 ? 0.04f : 0.12f);
-            y += (noiseLayer + toneLayer) * rsEnv * ar;
+            const float k = 1.6f - 1.45f * clampf (s->deathyRes, 0.f, 1.f);
+            for (int c = 0; c < 2; ++c)
+            {
+                float lp, bp, hp; deathySvf[c].run (v[c], g, k, lp, bp, hp);
+                const float tone = clampf (s->deathyTone, 0.f, 1.f);
+                const float wet = (0.96f - 0.42f * tone) * lp
+                                + (0.28f + 0.58f * tone) * bp
+                                - (0.18f * tone) * hp;
+                v[c] = lerpf (v[c], wet, a);
+            }
         }
-        v[0] += y; v[1] += y;
+
+        // LFO-HAUNTED RADIO: moving band-pass / radio tone with slow, woozy drift.
+        a = am[Fx::LfoHauntedRadio];
+        hauntPhase += clampf (s->hauntRate, 0.02f, 5.f) / fsr;
+        if (hauntPhase >= 1.f) hauntPhase -= 1.f;
+        if (a > 0.0005f)
+        {
+            const float lfo = 0.5f + 0.5f * std::sin (kTwoPi * hauntPhase + 0.35f * std::sin (kTwoPi * hauntPhase * 0.25f));
+            const float fc = clampf (180.f * std::exp2 (lfo * (3.f + 5.f * clampf (s->hauntDepth, 0.f, 1.f))), 50.f, 0.40f * fsr);
+            const float g = std::tan (kPi * fc / fsr);
+            const float k = 1.8f - 1.62f * clampf (s->hauntRes, 0.f, 1.f);
+            for (int c = 0; c < 2; ++c)
+            {
+                float lp, bp, hp; hauntSvf[c].run (v[c], g, k, lp, bp, hp);
+                const float darkness = 0.18f + 0.72f * clampf (s->hauntTone, 0.f, 1.f);
+                const float wet = bp * (1.25f - darkness * 0.35f) + lp * darkness * 0.48f;
+                v[c] = lerpf (v[c], wet, a);
+            }
+        }
     }
 
     // ------------------------------------------------------------------ state
@@ -883,10 +912,11 @@ private:
 
     // pitch
     detail::PitchShifter ps[kPitchVoices][2];
-    float ratioHarm = 1.5f, detUp = 1.01f, detDn = 0.99f, whamTarget = 0.5f, whamR = 1.f, winTarget = 2400.f, winS = 0.f;
+    float detUp = 1.01f, detDn = 0.99f, whamTarget = 0.5f, whamR = 1.f, winTarget = 2400.f, winS = 0.f;
     float diveEnv = 0.f; bool diveAct = false;
     // fx
-    float crushHold[2] {}, crushCnt[2] {}, fuzzLp[2] {}, fuzzHp[2] {}, rmPh = 0.f, fltPh = 0.f, filtK = 1.f, wahEnv = 0.f, wahAtk = 0.01f, wahRel = 0.001f;
+    float tapeMem[2] {}, tapeLp[2] {}, tapePhase = 0.f;
+    float fuzzLp[2] {}, fuzzHp[2] {}, rmPh = 0.f, fltPh = 0.f, filtK = 1.f, wahEnv = 0.f, wahAtk = 0.01f, wahRel = 0.001f;
     float hpG = 0.03f, lpG = 0.2f;
     detail::SVF fltSvf[2], radHp[2], radLp[2], wahSvf[2];
     // glitch
@@ -900,14 +930,13 @@ private:
     // mod
     DelayLine choD[2], flD[2], vibD[2];
     float choPh = 0.f, flPh = 0.f, phPh = 0.f, vibPh = 0.f, phZ[2][4] {}, phFbS[2] {}, flFbS[2] {};
-    // gen
-    float subEnv = 0.f, subT = 0.f, subPh = 0.f, subCoef = 0.9999f;
-    bool rsActive = false; float rsT = 0.f, rsEnv = 0.f, rsPh = 0.f; detail::SVF rsSvf;
+    float deathyPhase = 0.f, hauntPhase = 0.f;
+    detail::SVF deathySvf[2], hauntSvf[2];
     // time
     detail::StereoDelay dly;
     detail::FdnReverb rev, shRev;
     detail::PitchShifter shPs;
-    float shFbS = 0.f, shLp = 0.f, shHp = 0.f;
+    float shFbS = 0.f, shLp = 0.f, shHp = 0.f, shPhase = 0.f;
 };
 
 } // namespace djx
