@@ -23,8 +23,10 @@ inline const char* const kCatNames[6] = { "Pitch", "FX", "Glitch", "Mod", "Gen",
 
 inline juce::Colour catColour (int cat)
 {
-    // vivid per-category: purple, orange, cyan, green, yellow, pink
-    static const juce::uint32 c[6] = { 0xff8c64ff, 0xffff7837, 0xff32ceff, 0xff37dc82, 0xffd8c832, 0xffe14896 };
+    // Restrained category accents: moon lavender, copper, slate blue, sage,
+    // antique gold, and dusty rose. They remain distinguishable on dark/light UI.
+    static const juce::uint32 c[6] = { 0xff9a92b8, 0xffc28b72, 0xff82a8b9,
+                                       0xff8eaf98, 0xffb5a978, 0xffb78ca5 };
     return juce::Colour (c[juce::jlimit (0, 5, cat)]);
 }
 
@@ -66,8 +68,8 @@ inline const std::vector<PDef>& defs()
         { PDef p; p.id = id; p.name = name; p.kind = kInt; p.mn = (float) mn; p.mx = (float) mx; p.def = (float) def; p.unit = unit; p.group = grp; p.inPreset = pre && grp >= 0; d.push_back (p); };
         auto C = [&] (const char* id, const char* name, const std::string& ch, int def, int grp, bool pre = true)
         { PDef p; p.id = id; p.name = name; p.kind = kChoice; p.choices = ch; p.def = (float) def; p.group = grp; p.inPreset = pre && grp >= 0; d.push_back (p); };
-        auto B = [&] (const char* id, const char* name, bool def)
-        { PDef p; p.id = id; p.name = name; p.kind = kBool; p.def = def ? 1.f : 0.f; d.push_back (p); };
+        auto B = [&] (const char* id, const char* name, bool def, bool pre = false)
+        { PDef p; p.id = id; p.name = name; p.kind = kBool; p.def = def ? 1.f : 0.f; p.inPreset = pre; d.push_back (p); };
 
         // ---- globals
         B ("bypass", "Bypass", false);
@@ -108,7 +110,7 @@ inline const std::vector<PDef>& defs()
                 p.name = "Node " + std::to_string (i);
                 p.def  = (float) (kNodeDefFx[i] + 1); d.push_back (p);
                 const std::string eid = "n" + std::to_string (i) + "e";
-                B (eid.c_str(), p.name.c_str(), true);
+                B (eid.c_str(), p.name.c_str(), true, true);
             }
         }
 
@@ -296,8 +298,8 @@ inline const std::vector<Preset>& presets()
         { "Wobble Filter", { { "a_filt", 1.f }, { "filtMode", 1 }, { "filtFreq", 600 }, { "filtRes", 0.7f }, { "filtRate", 4 }, { "filtDepth", 0.9f }, { "a_trem", 0.4f }, { "a_rvb", 0.15f } } },
         { "Whammy Octave Up", { { "a_wham", 1.f }, { "whamPos", 12 }, { "a_det", 0.3f }, { "a_dly", 0.25f } } },
         { "Underwater", { { "a_cho", 0.7f }, { "choRate", 0.3f }, { "choDepth", 1.f }, { "a_vib", 0.4f }, { "a_filt", 0.6f }, { "filtMode", 0 }, { "filtFreq", 1200 }, { "filtRes", 0.2f }, { "filtDepth", 0.2f }, { "filtRate", 0.3f }, { "a_rvb", 0.5f } } },
-        { "Pad: Cinematic", { { "padTL", (float) (Fx::Shimmer + 1) }, { "padTR", (float) (Fx::Riser + 1) }, { "padBL", (float) (Fx::OctDown + 1) }, { "padBR", (float) (Fx::TapeStop + 1) }, { "a_rvb", 0.2f } } },
-        { "Pad: Chaos Glitch", { { "padTL", (float) (Fx::Scatter + 1) }, { "padTR", (float) (Fx::Stutter + 1) }, { "padBL", (float) (Fx::Fuzz + 1) }, { "padBR", (float) (Fx::Crush + 1) }, { "a_dly", 0.25f } } },
+        { "Pad: Cinematic", { { "n0", (float) (Fx::Shimmer + 1) }, { "n4", (float) (Fx::Riser + 1) }, { "n8", (float) (Fx::OctDown + 1) }, { "n12", (float) (Fx::TapeStop + 1) }, { "a_rvb", 0.2f } } },
+        { "Pad: Chaos Glitch", { { "n0", (float) (Fx::Scatter + 1) }, { "n4", (float) (Fx::Stutter + 1) }, { "n8", (float) (Fx::Fuzz + 1) }, { "n12", (float) (Fx::Crush + 1) }, { "a_dly", 0.25f } } },
         { "Radio Saw", { { "a_radio", 0.95f }, { "radioLow", 780 }, { "radioHigh", 2600 }, { "radioDrive", 13 }, { "a_fuzz", 0.2f }, { "fuzzDrive", 0.38f } } },
         { "Analog Fuzz Lead", { { "a_fuzz", 0.9f }, { "fuzzDrive", 0.72f }, { "fuzzTone", 0.58f }, { "a_det", 0.18f }, { "detCents", 8 }, { "a_rvb", 0.18f } } },
         { "Void Cathedral", { { "a_rvb", 0.85f }, { "revRoom", 6 }, { "revSize", 1.7f }, { "revDecay", 15 }, { "revDamp", 0.75f }, { "revPre", 42 }, { "a_shim", 0.38f } } },

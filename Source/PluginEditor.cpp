@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "PluginEditor.h"
 
 using namespace juce;
@@ -32,6 +33,7 @@ FxDetailPanel::FxDetailPanel (LunaFXProcessor& p) : proc (p) {}
 
 void FxDetailPanel::showFx (int fxIndex)
 {
+    if (fxIndex < -1 || fxIndex >= djx::kNumFx) fxIndex = -1;
     if (fxIndex == currentFx) return;
     currentFx = fxIndex;
     knobs.clear();
@@ -281,10 +283,12 @@ void FxCategoryPanel::paint (Graphics& g)
 // ============================================================  PresetBrowserPanel
 PresetBrowserPanel::PresetBrowserPanel (LunaFXProcessor& p) : proc (p)
 {
+    listModel.owner = this;
     listModel.proc = &p;
     listModel.folder = 0;
 
-    for (const char* lbl : { "Factory", "My Presets", "DJ Drops", "Templates" })
+    // Keep only working destinations visible; empty placeholder tabs were confusing.
+    for (const char* lbl : { "Factory", "My Presets" })
     {
         auto* btn = folderBtns.add (new TextButton (lbl));
         btn->addListener (this);
@@ -297,13 +301,48 @@ PresetBrowserPanel::PresetBrowserPanel (LunaFXProcessor& p) : proc (p)
 
     saveBtn.addListener (this);
     addAndMakeVisible (saveBtn);
+    refreshList();
 }
 
 void PresetBrowserPanel::refreshList()
 {
+    cachedUserPresets = userPresetFiles();
     presetList.updateContent();
-    presetList.selectRow (proc.getCurrentProgram());
+    if (activeFolder == 0) presetList.selectRow (proc.getCurrentProgram());
+    else presetList.deselectAllRows();
     repaint();
+}
+
+juce::File PresetBrowserPanel::userPresetDirectory() const
+{
+    return File::getSpecialLocation (File::userApplicationDataDirectory)
+        .getChildFile ("LunaLabs").getChildFile ("Luna FX").getChildFile ("Presets");
+}
+
+std::vector<juce::File> PresetBrowserPanel::userPresetFiles() const
+{
+    std::vector<File> result;
+    const auto dir = userPresetDirectory();
+    Array<File> found;
+    if (dir.isDirectory()) dir.findChildFiles (found, File::findFiles, false, "*.lfxpreset");
+    for (const auto& f : found) result.push_back (f);
+    std::sort (result.begin(), result.end(), [] (const File& a, const File& b)
+    {
+        return a.getFileName().compareIgnoreCase (b.getFileName()) < 0;
+    });
+    return result;
+}
+
+void PresetBrowserPanel::loadUserPreset (int row)
+{
+    const auto files = userPresetFiles();
+    if (! isPositiveAndBelow (row, (int) files.size())) return;
+    MemoryBlock state;
+    if (files[(size_t) row].loadFileAsData (state) && state.getSize() > 0)
+    {
+        proc.setStateInformation (state.getData(), (int) state.getSize());
+        refreshList();
+    }
 }
 
 void PresetBrowserPanel::resized()
@@ -311,11 +350,13 @@ void PresetBrowserPanel::resized()
     auto area = getLocalBounds().reduced (6, 4);
     // folder strip
     auto folders = area.removeFromTop (34);
-    const int fw = (folders.getWidth() - 60) / 4;
-    for (int i = 0; i < 4; ++i)
-        folderBtns[i]->setBounds (folders.getX() + i * (fw + 4),
-                                   folders.getY() + 3, fw, 28);
-    saveBtn.setBounds (folders.getRight() - 56, folders.getY() + 3, 56, 28);
+    const int saveW = 64;
+    const int folderGap = 4;
+    const int fw = jmax (54, (folders.getWidth() - saveW - (folderBtns.size() + 1) * folderGap) / jmax (1, folderBtns.size()));
+    for (int i = 0; i < folderBtns.size(); ++i)
+        folderBtns[i]->setBounds (folders.getX() + i * (fw + folderGap),
+                                  folders.getY() + 3, fw, 28);
+    saveBtn.setBounds (folders.getRight() - saveW, folders.getY() + 3, saveW, 28);
     area.removeFromTop (4);
     presetList.setBounds (area);
 }
@@ -375,9 +416,28 @@ void PresetBrowserPanel::saveCurrentPreset()
     {
         if (sp != nullptr && ep != nullptr)
         {
-            auto name = ep->getText();
+            auto name = ep->getText().trim();
+            name = name.replaceCharacters ("\\/:*?\"<>|", "_________").trim();
             if (name.isNotEmpty())
-                sp->proc.changeProgramName (sp->proc.getCurrentProgram(), name);
+            {
+                auto dir = sp->userPresetDirectory();
+                const auto createResult = dir.createDirectory();
+                if (createResult.wasOk() || dir.isDirectory())
+                {
+                    const auto previousName = sp->proc.getProgramName (sp->proc.getCurrentProgram());
+                    sp->proc.setUserPresetName (name);
+                    MemoryBlock state;
+                    sp->proc.getStateInformation (state);
+                    const auto target = dir.getChildFile ("Preset - " + name + ".lfxpreset");
+                    if (! target.replaceWithData (state.getData(), state.getSize()))
+                        sp->proc.setUserPresetName (previousName);
+                    else
+                    {
+                        sp->activeFolder = 1;
+                        sp->listModel.folder = 1;
+                    }
+                }
+            }
             sp->refreshList();
             sp->removeChildComponent (ep.getComponent());
             delete ep.getComponent();
@@ -393,8 +453,11 @@ void PresetBrowserPanel::saveCurrentPreset()
     };
 }
 
-int  PresetBrowserPanel::PresetListModel::getNumRows()
-    { return folder == 0 ? proc->getNumPrograms() : 0; }
+int PresetBrowserPanel::PresetListModel::getNumRows()
+{
+    if (owner == nullptr || proc == nullptr) return 0;
+    return folder == 0 ? proc->getNumPrograms() : (int) owner->cachedUserPresets.size();
+}
 
 void PresetBrowserPanel::PresetListModel::paintListBoxItem
     (int row, Graphics& g, int w, int h, bool sel)
@@ -402,12 +465,26 @@ void PresetBrowserPanel::PresetListModel::paintListBoxItem
     if (sel) { g.setColour (cAccent().withAlpha (0.2f)); g.fillRoundedRectangle (2.f, 1.f, (float) w - 4.f, (float) h - 2.f, 4.f); }
     g.setColour (sel ? lunaText() : lunaSub());
     g.setFont (Font (12.f));
-    g.drawText (proc->getProgramName (row),
-                Rectangle<int> (12, 0, w - 12, h), Justification::centredLeft);
+    String name;
+    if (folder == 0)
+    {
+        const auto& factory = params::presets();
+        if (row >= 0 && row < (int) factory.size()) name = factory[(size_t) row].name;
+    }
+    else if (owner != nullptr)
+    {
+        const auto& files = owner->cachedUserPresets;
+        if (isPositiveAndBelow (row, (int) files.size())) name = files[(size_t) row].getFileNameWithoutExtension().fromFirstOccurrenceOf ("Preset - ", false, false);
+    }
+    g.drawText (name, Rectangle<int> (12, 0, w - 12, h), Justification::centredLeft);
 }
 
 void PresetBrowserPanel::PresetListModel::listBoxItemClicked (int row, const MouseEvent& /*e*/)
-    { proc->setCurrentProgram (row); }
+{
+    if (owner == nullptr || proc == nullptr) return;
+    if (folder == 0) owner->loadPreset (row);
+    else owner->loadUserPreset (row);
+}
 
 // ============================================================  PlayPage ring pad
 PlayPage::PlayPage (LunaFXProcessor& p)
@@ -478,23 +555,21 @@ void PlayPage::tick (float /*dt*/)
 
 void PlayPage::resized()
 {
-    const auto b  = getLocalBounds();
-    const int  pw = jmin (b.getWidth() - 20, b.getHeight() - 140);
-    const int  px = (b.getWidth() - pw) / 2;
-    const int  py = 16;
-    pad.setBounds (px, py, pw, pw);
+    const auto b = getLocalBounds();
+    // Reserve a dedicated bottom performance strip. In the previous layout the
+    // circle overlapped the knobs and the ACCENT button, making both hard to use.
+    const int pw = jmax (180, jmin (b.getWidth() - 34, b.getHeight() - 220));
+    const int px = (b.getWidth() - pw) / 2;
+    pad.setBounds (px, 12, pw, pw);
 
-    accent.setBounds (b.getCentreX() - 44, b.getHeight() - 118, 88, 104);
+    const int kh = 84, kw = 72;
+    const int ky = b.getHeight() - kh - 8;
+    const int knobX[4] = { 38, 122, b.getWidth() - 122 - kw, b.getWidth() - 38 - kw };
+    ParamControl* controls[4] = { chaos.get(), rate.get(), depth.get(), feedback.get() };
+    for (int i = 0; i < 4; ++i)
+        controls[i]->setBounds (knobX[i], ky, kw, kh);
 
-    // bottom bar: four knobs
-    const int kw = 78, kh = 90, ky = b.getHeight() - 130;
-    const int totalKw = 4 * kw + 3 * 6;
-    int kx = (b.getWidth() - totalKw) / 2 - 70;
-    for (auto* k : { chaos.get(), rate.get(), depth.get(), feedback.get() })
-    {
-        k->setBounds (kx, ky, kw, kh);
-        kx += kw + 6;
-    }
+    accent.setBounds (b.getCentreX() - 42, b.getHeight() - 100, 84, 92);
 
     // shuffle/prev/next cluster near top-right
     const int bx = b.getRight() - 120;
@@ -650,74 +725,88 @@ void PlayPage::paint (Graphics& g)
     }
 }
 
-// ============================================================  SetupPage (unchanged layout, new name)
+// ============================================================  SetupPage — global settings + 16-node routing
 SetupPage::SetupPage (LunaFXProcessor& p)
 {
     auto add = [&] (std::vector<std::unique_ptr<ParamControl>>& v,
-                    const char* id, const char* cap, Colour c)
+                    const String& id, const String& cap, Colour c)
     {
+        // ParamControl has its own null guard as a second line of defence.
         v.push_back (std::make_unique<ParamControl> (p.apvts, id, cap, c));
         addAndMakeVisible (*v.back());
     };
-    add (knobs, "fade",     "Engage Fade",   cAccent());
-    add (knobs, "chaos",    "Chaos",          cAccent());
-    add (knobs, "padDepth", "Pad Depth",      cAccent2());
-    add (combos, "engMode",  "Footswitch Mode", cAccent());
-    add (combos, "autoRand", "Auto Randomize",  cAccent());
-    // padMode removed (16-node system uses angular blending)
-    add (combos, "uiTheme",  "Visual Theme",     cAccent2());
-    add (toggles, "midi",      "MIDI Hold = Accent",  cAccent());
-    add (toggles, "padTouch",  "Touch Pad = Accent",  cAccent());
-    add (toggles, "padSpring", "Pad Springs Back",    cAccent());
+    add (knobs, "fade",     "Engage Fade", cAccent());
+    add (knobs, "chaos",    "Random Amount", cAccent());
+    add (knobs, "padDepth", "XY Depth", cAccent2());
 
-    // old 8-zone params removed
-    const char* zIds[8]  = {};
-    const char* zOn[8]   = {};
-    const char* zNames[8]= { "Top Edge","Right Edge","Bottom Edge","Left Edge",
-                              "Centre 1","Centre 2","Centre 3","Centre 4" };
-    for (int i = 0; i < 8; ++i)
+    add (combos, "engMode",  "Footswitch", cAccent());
+    add (combos, "autoRand", "Auto Randomize", cAccent());
+    add (combos, "uiTheme",  "Visual Theme", cAccent2());
+
+    add (toggles, "midi",      "MIDI Hold = Accent", cAccent());
+    add (toggles, "padTouch",  "Touch Pad = Accent", cAccent());
+    add (toggles, "padSpring", "Spring Return", cAccent());
+
+    // This section was left as empty IDs in the previous version. Constructing
+    // ParamControl with those IDs dereferenced a null parameter; the corresponding
+    // controls are now bound to the real n0..n15 and n0e..n15e APVTS parameters.
+    for (int i = 0; i < 16; ++i)
     {
-        add (zoneCombos,  zIds[i],  zNames[i], i < 4 ? cAccent() : cAccent2());
-        add (zoneToggles, zOn[i],   "Enable",  i < 4 ? cAccent() : cAccent2());
+        const String id = "n" + String (i);
+        const String enabledId = id + "e";
+        add (zoneCombos, id, "Node " + String (i + 1), (i < 4) ? cAccent() : cAccent2());
+        add (zoneToggles, enabledId, "Enable", (i < 4) ? cAccent() : cAccent2());
     }
 }
 
 void SetupPage::resized()
 {
-    auto b = getLocalBounds().withSizeKeepingCentre (1030, 650);
-    b.removeFromTop (60);
-    auto k = b.removeFromTop (98);
-    const int kw = k.getWidth() / 3;
-    for (int i = 0; i < 3; ++i)
-        knobs[(size_t)i]->setBounds (k.getX() + i * kw + 42, k.getY(), kw - 84, k.getHeight());
-    b.removeFromTop (4);
-    auto c = b.removeFromTop (54);
-    const int cw = c.getWidth() / 4;
-    for (int i = 0; i < 4; ++i)
-        combos[(size_t)i]->setBounds (c.getX() + i * cw + 8, c.getY(), cw - 16, c.getHeight());
-    b.removeFromTop (4);
-    auto t = b.removeFromTop (38);
-    const int tw = t.getWidth() / 3;
-    for (int i = 0; i < 3; ++i)
-        toggles[(size_t)i]->setBounds (t.getX() + i * tw + 12, t.getY(), tw - 24, t.getHeight());
-    b.removeFromTop (34);
-    const int colW = b.getWidth() / 4;
-    for (int i = 0; i < 8; ++i)
+    auto area = getLocalBounds().reduced (18, 12);
+    area.removeFromTop (48); // title
+
+    const int gap = 8;
+    auto knobsRow = area.removeFromTop (94);
+    const int kw = (knobsRow.getWidth() - 2 * gap) / 3;
+    for (int i = 0; i < (int) knobs.size(); ++i)
+        knobs[(size_t) i]->setBounds (knobsRow.getX() + i * (kw + gap), knobsRow.getY(), kw, knobsRow.getHeight());
+
+    area.removeFromTop (4);
+    auto comboRow = area.removeFromTop (54);
+    const int cw = (comboRow.getWidth() - 2 * gap) / 3;
+    for (int i = 0; i < (int) combos.size(); ++i)
+        combos[(size_t) i]->setBounds (comboRow.getX() + i * (cw + gap), comboRow.getY(), cw, comboRow.getHeight());
+
+    area.removeFromTop (4);
+    auto toggleRow = area.removeFromTop (34);
+    const int tw = (toggleRow.getWidth() - 2 * gap) / 3;
+    for (int i = 0; i < (int) toggles.size(); ++i)
+        toggles[(size_t) i]->setBounds (toggleRow.getX() + i * (tw + gap), toggleRow.getY(), tw, toggleRow.getHeight());
+
+    area.removeFromTop (10);
+    const int cols = 4;
+    const int rows = 4;
+    const int colW = (area.getWidth() - (cols - 1) * gap) / cols;
+    const int rowH = jmax (54, (area.getHeight() - (rows - 1) * 6) / rows);
+    for (int i = 0; i < 16; ++i)
     {
-        int row = i / 4, col = i % 4;
-        zoneCombos[(size_t)i] ->setBounds (b.getX() + col * colW + 8,     b.getY() + row * 106,      colW - 16, 50);
-        zoneToggles[(size_t)i]->setBounds (b.getX() + col * colW + colW/2 - 42, b.getY() + row * 106 + 54, 84, 30);
+        const int row = i / cols, col = i % cols;
+        auto cell = Rectangle<int> (area.getX() + col * (colW + gap),
+                                    area.getY() + row * (rowH + 6), colW, rowH);
+        zoneCombos[(size_t) i]->setBounds (cell.removeFromTop (jmin (31, rowH - 20)));
+        zoneToggles[(size_t) i]->setBounds (cell.removeFromTop (22));
     }
 }
 
 void SetupPage::paint (Graphics& g)
 {
-    auto b = getLocalBounds().withSizeKeepingCentre (1030, 650).toFloat();
-    fillRR   (g, b, 18.f, Colour (0xff0f1018));
-    strokeRR (g, b, 18.f, lunaBorder());
-    g.setColour (lunaText()); g.setFont (Font (18.f).boldened());
-    g.drawText ("SETTINGS & XY ROUTING",
-                b.removeFromTop (60.f).withTrimmedLeft (28.f), Justification::centredLeft);
+    auto b = getLocalBounds().toFloat().reduced (8.f);
+    fillRR   (g, b, 16.f, cPanel());
+    strokeRR (g, b, 16.f, cLine());
+    g.setColour (cText()); g.setFont (Font (18.f).boldened());
+    g.drawText ("SETUP & XY ROUTING", b.withTrimmedLeft (20.f).withHeight (38.f), Justification::centredLeft);
+    g.setColour (cMuted()); g.setFont (Font (10.f));
+    g.drawText ("Choose an effect for each point around the pad and switch points off when not needed.",
+                b.withTrimmedLeft (20.f).withY (32.f).withHeight (20.f), Justification::centredLeft);
 }
 
 // ============================================================  LunaFXEditor
@@ -745,7 +834,12 @@ LunaFXEditor::LunaFXEditor (LunaFXProcessor& p)
                                    presets.refreshList(); };
     presetNext.onClick = [this] { proc.setCurrentProgram ((proc.getCurrentProgram() + 1) % proc.getNumPrograms());
                                    presets.refreshList(); };
-    saveBtn  .onClick  = [this] { presets.saveCurrentPreset(); };  // delegate
+    saveBtn  .onClick  = [this]
+    {
+        showNav (7);
+        presets.refreshList();
+        presets.saveCurrentPreset();
+    };  // open the browser before placing the inline save field
     folderBtn.onClick  = [this] { presetPanelVisible = !presetPanelVisible;
                                    presets.setVisible (presetPanelVisible); repaint(); };
 
@@ -764,9 +858,9 @@ LunaFXEditor::LunaFXEditor (LunaFXProcessor& p)
     dryWet = std::make_unique<ParamControl> (proc.apvts, "dryWet", "Dry/Wet", cAccent2());
     content.addAndMakeVisible (*dryWet);
 
-    // ---- left nav (8 buttons)
-    const char* navLabels[8] = { "XY","PITCH","FX","GLITCH","MOD","GEN","TIME","PRE" };
-    for (int i = 0; i < 8; ++i)
+    // ---- left nav: the former PRE item now has its own SET page beside presets.
+    const char* navLabels[9] = { "XY","PITCH","FX","GLITCH","MOD","GEN","TIME","PRE","SET" };
+    for (int i = 0; i < 9; ++i)
     {
         auto* btn = navBtns.add (new TextButton (navLabels[i]));
         btn->onClick = [this, i] { showNav (i); };
@@ -800,12 +894,12 @@ void LunaFXEditor::showNav (int idx)
 {
     activeNav = idx;
 
-    // XY pad visible for nav 0; setup visible for nav 7 repurposed or a dedicated item
-    play .setVisible (idx <= 6);          // all categories show ring pad on left
-    setup.setVisible (false);             // setup is in the PRE page for now
+    // Main play surface, presets, and setup are mutually exclusive pages.
+    play .setVisible (idx <= 6);
+    setup.setVisible (idx == 8);
     presets.setVisible (idx == 7);
 
-    // right panel: XY = no category, others open matching category
+    // Right panel: category views keep their FX list; library/setup get the space.
     if (idx >= 1 && idx <= 6)
     {
         fxCats.selectCategory (idx - 1);  // 1->PITCH(0), 2->FX(1) ...
@@ -815,8 +909,8 @@ void LunaFXEditor::showNav (int idx)
     else
     {
         fxDetail.showFx (-1);
-        fxCats.setVisible (idx != 7);    // hide cat panel on preset page
-        fxDetail.setVisible (idx != 7);
+        fxCats.setVisible (idx != 7 && idx != 8);
+        fxDetail.setVisible (idx != 7 && idx != 8);
     }
 
     for (int i = 0; i < navBtns.size(); ++i)
@@ -857,11 +951,11 @@ void LunaFXEditor::paintContent (Graphics& g)
     g.drawText ("FX", Rectangle<float> (18.f + lw + 4.f, 14.f, 36.f, 24.f), Justification::centredLeft);
 
     // version badge
-    auto vbadge = Rectangle<float> (94.f, 13.f, 34.f, 22.f);
+    auto vbadge = Rectangle<float> (138.f, 13.f, 44.f, 22.f);
     fillRR   (g, vbadge, 4.f, Colour (0xff1a1c2a));
     strokeRR (g, vbadge, 4.f, lunaBorder());
     g.setFont (Font (9.f)); g.setColour (lunaSub());
-    g.drawText ("v1.1", vbadge, Justification::centred);
+    g.drawText ("1.1.1", vbadge, Justification::centred);
 
     // ---- IN / OUT labels (above sliders)
     g.setFont (Font (10.f)); g.setColour (lunaSub());
@@ -875,7 +969,7 @@ void LunaFXEditor::paintContent (Graphics& g)
     g.drawLine ((float) kNavW, (float) kTopH, (float) kNavW, H, 1.f);
 
     // nav active accent strip
-    const int navH  = (kDesignH - kTopH) / 8;
+    const int navH  = (kDesignH - kTopH - 20) / jmax (1, navBtns.size());
     const int ny    = kTopH + activeNav * navH;
     g.setColour (Colour (0xff181a28));
     g.fillRect (0.f, (float) ny, (float) kNavW, (float) navH);
@@ -897,7 +991,7 @@ void LunaFXEditor::paintContent (Graphics& g)
     g.drawLine (0.f, H - 20.f, W, H - 20.f, 1.f);
     g.setFont (Font (9.f));
     g.setColour (lunaDim());
-    g.drawText ("LUNA FX  v1.1.0", Rectangle<float> (8.f, H - 18.f, 130.f, 16.f), Justification::centredLeft);
+    g.drawText ("LUNA FX  v1.1.1", Rectangle<float> (8.f, H - 18.f, 130.f, 16.f), Justification::centredLeft);
     g.drawText ("44100 Hz  \u2022  512 smp", Rectangle<float> (W * 0.5f - 80.f, H - 18.f, 160.f, 16.f), Justification::centred);
     g.setColour (catCol (3)); // green CPU indicator
     g.drawText ("CPU  --%", Rectangle<float> (W - 70.f, H - 18.f, 64.f, 16.f), Justification::centredLeft);
@@ -921,14 +1015,14 @@ void LunaFXEditor::resized()
     bypass     .setBounds (1224, 10, 100, 30);
 
     // ---- left nav buttons
-    const int navH = (kDesignH - kTopH) / 8;
+    const int navH = (kDesignH - kTopH - 20) / jmax (1, navBtns.size());
     for (int i = 0; i < navBtns.size(); ++i)
         navBtns[i]->setBounds (0, kTopH + i * navH, kNavW, navH);
 
     // ---- play area (left portion of page area)
     const Rectangle<int> padArea (kNavW, kTopH, kSplitX, kDesignH - kTopH - 20);
     play .setBounds (padArea);
-    setup.setBounds (padArea);
+    setup.setBounds (kNavW, kTopH, kDesignW - kNavW, kDesignH - kTopH - 20);
 
     // ---- right panel split: top = fxDetail, middle = fxCats, bottom = presets
     const int rw  = kDesignW - kRightX;

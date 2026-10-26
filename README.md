@@ -4,10 +4,10 @@
 
 ## Features
 
-- **XY Ring Pad** — 8 assignable FX nodes on the circle rim, drag to reposition
+- **XY Ring Pad** — 16 configurable FX routing points around the circle
 - **28 effects** across 6 categories: Pitch · FX · Glitch · Mod · Gen · Time
 - **Per-FX detail panel** — full parameter knobs for every selected effect
-- **Preset browser** — Factory / My Presets / DJ Drops / Templates folders
+- **Preset browser** — factory presets plus persistent user presets
 - **Accent / Kill / Bypass** — one-shot performance controls
 - **Chaos knob** — randomise active effects on the fly
 
@@ -45,4 +45,10 @@ LunaFX/
 
 ## Version history
 
-See `CHANGES-1.1.0.md`
+See `CHANGES-1.1.1.md` and `CRASH-INVESTIGATION.md`
+
+## User presets
+
+Use **PRE → + SAVE** to save the current sound. User presets are stored in the user's application-data directory under `LunaLabs/Luna FX/Presets` as `.lfxpreset` files. The **SET** page exposes the 16 routing-node assignments and enable switches.
+
+If the plug-in editor previously crashed during opening, see `CRASH-INVESTIGATION.md` for the source-level diagnosis and Windows validation steps.

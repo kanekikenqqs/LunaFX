@@ -33,6 +33,9 @@ bool LunaFXProcessor::isBusesLayoutSupported (const BusesLayout& l) const
 
 void LunaFXProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    if (! std::isfinite (sampleRate) || sampleRate < 8000.0 || sampleRate > 384000.0)
+        sampleRate = 48000.0;
+    samplesPerBlock = jmax (1, samplesPerBlock);
     currentSampleRate = sampleRate;
     engine.prepare (sampleRate);
     monoR.assign ((size_t) jmax (512, samplesPerBlock), 0.f);
@@ -235,6 +238,7 @@ void LunaFXProcessor::setCurrentProgram (int index)
     const auto& ps = params::presets();
     if (! isPositiveAndBelow (index, (int) ps.size())) return;
     currentProgram = index;
+    currentUserPresetName.clear();
 
     for (auto& d : params::defs())
         if (d.inPreset)
@@ -247,6 +251,8 @@ void LunaFXProcessor::setCurrentProgram (int index)
 
 const String LunaFXProcessor::getProgramName (int index)
 {
+    if (index == currentProgram && currentUserPresetName.isNotEmpty())
+        return currentUserPresetName;
     const auto& ps = params::presets();
     return isPositiveAndBelow (index, (int) ps.size()) ? String (ps[(size_t) index].name) : String();
 }
@@ -312,18 +318,31 @@ void LunaFXProcessor::getStateInformation (MemoryBlock& dest)
 {
     auto state = apvts.copyState();
     state.setProperty ("program", currentProgram, nullptr);
+    state.setProperty ("userPresetName", currentUserPresetName, nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary (*xml, dest);
 }
 
 void LunaFXProcessor::setStateInformation (const void* data, int size)
 {
+    // Hosts can restore old, partial, or externally edited project state. Do not
+    // trust the stored program index or persist a pressed momentary KILL button.
+    if (data == nullptr || size <= 0) return;
+
     if (auto xml = getXmlFromBinary (data, size))
-        if (xml->hasTagName (apvts.state.getType()))
-        {
-            auto vt = ValueTree::fromXml (*xml);
-            currentProgram = (int) vt.getProperty ("program", 0);
-            apvts.replaceState (vt);
-        }
+    {
+        if (! xml->hasTagName (apvts.state.getType())) return;
+
+        auto vt = ValueTree::fromXml (*xml);
+        if (! vt.isValid() || vt.getType() != apvts.state.getType()) return;
+
+        apvts.replaceState (vt);
+        currentProgram = jlimit (0, jmax (0, getNumPrograms() - 1),
+                                 (int) vt.getProperty ("program", 0));
+        currentUserPresetName = vt.getProperty ("userPresetName", String()).toString();
+
+        if (auto* killParam = apvts.getParameter ("kill"))
+            killParam->setValueNotifyingHost (killParam->convertTo0to1 (0.f));
+    }
 }
 
 AudioProcessorEditor* LunaFXProcessor::createEditor() { return new LunaFXEditor (*this); }

@@ -42,6 +42,7 @@ public:
     void setCurrentProgram (int index) override;
     const juce::String getProgramName (int index) override;
     void changeProgramName (int, const juce::String&) override {}
+    void setUserPresetName (const juce::String& name) { currentUserPresetName = name; }
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
@@ -77,6 +78,7 @@ private:
     bool prevEngaged = false;
     bool prevKill = false;
     int currentProgram = 0;
+    juce::String currentUserPresetName;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> bypassSm;
     juce::AudioBuffer<float> dryBuf;

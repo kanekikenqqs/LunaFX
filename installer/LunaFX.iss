@@ -1,10 +1,10 @@
 ; Inno Setup script -> LunaFX-Setup.exe
 #define AppName "Luna FX"
-#define AppVer  "1.1.0"
+#define AppVer  "1.1.1"
 #define Art     "..\build\LunaFX_artefacts\Release"
 
 [Setup]
-AppId={{8D2A6C1E-9B43-4D0C-AE52-BCDE28G11112}
+AppId={{8D2A6C1E-9B43-4D0C-AE52-BCDE28A11112}
 AppName={#AppName}
 AppVersion={#AppVer}
 AppPublisher=LunaLabs

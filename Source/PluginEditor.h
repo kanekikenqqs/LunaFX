@@ -108,10 +108,16 @@ private:
     juce::OwnedArray<juce::TextButton> folderBtns;
     juce::ListBox presetList;
 
+    juce::File userPresetDirectory() const;
+    std::vector<juce::File> userPresetFiles() const;
+    void loadUserPreset (int row);
+    std::vector<juce::File> cachedUserPresets;
+
     struct PresetListModel : public juce::ListBoxModel
     {
+        PresetBrowserPanel* owner = nullptr;
         LunaFXProcessor* proc = nullptr;
-        int folder = 0;    // 0=factory programs, 1=user presets (future)
+        int folder = 0;    // 0=factory programs, 1=saved user presets
         int getNumRows() override;
         void paintListBoxItem (int row, juce::Graphics& g,
                                int w, int h, bool selected) override;
@@ -167,7 +173,7 @@ private:
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
-//  SetupPage  — global settings (unchanged from original, just renamed)
+//  SetupPage — global settings and 16 configurable XY routing nodes
 // ──────────────────────────────────────────────────────────────────────────────
 class SetupPage : public juce::Component
 {
@@ -177,7 +183,7 @@ public:
     void resized() override;
 private:
     std::vector<std::unique_ptr<ui::ParamControl>> knobs, combos, toggles;
-    std::vector<std::unique_ptr<ui::ParamControl>> zoneCombos, zoneToggles;
+    std::vector<std::unique_ptr<ui::ParamControl>> zoneCombos, zoneToggles; // 16 configurable rim nodes
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -201,7 +207,7 @@ private:
     };
     void paintContent (juce::Graphics&);
     void timerCallback() override;
-    void showNav (int idx);  // 0=XY 1=PITCH 2=FX 3=GLITCH 4=MOD 5=GEN 6=TIME 7=PRE
+    void showNav (int idx);  // 0=XY 1=PITCH 2=FX 3=GLITCH 4=MOD 5=GEN 6=TIME 7=PRE 8=SET
 
     LunaFXProcessor& proc;
     ui::LunaLnF      lnf;

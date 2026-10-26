@@ -109,7 +109,19 @@ public:
         : showCap (showCaption)
     {
         auto* p = s.getParameter (id);
-        jassert (p != nullptr);
+        if (p == nullptr)
+        {
+            // Be defensive in release builds too: a stale UI ID must never
+            // dereference a null parameter and take down the plug-in editor.
+            cap.setText (caption + " (unavailable)", dontSendNotification);
+            cap.setJustificationType (Justification::centred);
+            cap.setColour (Label::textColourId, cWarn());
+            cap.setFont (cap.getFont().withHeight (11.f));
+            cap.setInterceptsMouseClicks (false, false);
+            addAndMakeVisible (cap);
+            showCap = true;
+            return;
+        }
 
         if (auto* cp = dynamic_cast<AudioParameterChoice*> (p))
         {
@@ -473,13 +485,12 @@ private:
             // Radial vignette
             const float cu = u - 0.5f, cv = v - 0.5f;
             const float vig = std::max (0.f, 1.f - (cu * cu + cv * cv) * 3.8f);
-            // Purple / blue / navy plasma
-            const float r  = (0.04f + 0.22f * p1 * p2 + 0.42f * puckGlow + 0.12f * p3 * energy) * vig;
-            const float gr = (0.02f + 0.07f * p2  + 0.20f * puckGlow + 0.05f * energy * p1) * vig;
-            const float b  = (0.14f + 0.50f * (p1 * 0.6f + p2 * 0.4f)
-                              + 0.58f * puckGlow + 0.28f * p3) * vig;
+            // Restrained monochrome lunar texture. Keep the visual response
+            // subtle so it never competes with labels or the XY puck.
+            const float luminance = jlimit (0.f, 0.72f,
+                (0.018f + 0.14f * p1 * p2 + 0.25f * puckGlow + 0.10f * p3 * energy) * vig);
             bd.setPixelColour (i, j, Colour::fromFloatRGBA (
-                jlimit (0.f, 1.f, r), jlimit (0.f, 1.f, gr), jlimit (0.f, 1.f, b), 1.f));
+                luminance * 0.90f, luminance * 0.94f, luminance, 1.f));
         }
     }
 
