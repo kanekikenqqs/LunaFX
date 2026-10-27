@@ -1,24 +1,26 @@
 # Luna FX
 
-> Eight-slot XY performance instrument — VST3 + Standalone for Windows
+> Eight-vertex octagonal XY performance instrument — VST3 + Standalone for Windows
 
 ## What it is
 
 Luna FX is a serial multi-effects performance instrument built around an
-eight-node XY circle. Four instruments sit on the left arc and four on the
-right. The puck's **physical distance** to a node sets that instrument's live wet
-mix; the rack's **MAX** slider is the ceiling, and the **LIVE** meter shows what
-the puck is currently contributing. The full model is in
-[`MIX-MODEL.md`](MIX-MODEL.md).
+eight-vertex octagonal XY field. Four instruments sit on the left half and four
+on the right. Each vertex has a broad influence field, so three or four tools are
+audible at once; the puck's position sets their relative live mixes. The field is
+100% at a vertex, exactly dry at the centre, and still above 50% halfway to a
+vertex. `MIX-MODEL.md` documents the exact mapping.
 
 ## Features
 
-- **Eight-slot XY circle** — smooth vector lunar surface, distance-based live
-  mix, separate preset-assignment rings, keyboard support.
-- **Instrument rack** — enable, assignment, maximum mix, live proximity meter,
-  selected/preset state for all eight slots.
-- **Large contextual knobs** — three per row, real APVTS parameters, unit-aware
-  values, double-click reset and editable numbers.
+- **Eight-vertex octagonal field** — broad overlapping zones, smooth proximity,
+  octagonal clamping, preset rings, keyboard support.
+- **Per-tool DRY/WET knob** — every rack row has its own independent mix knob,
+  editable even when the tool is powered off or another tool is selected.
+- **Instrument rack** — power, per-tool mix, assignment, live proximity meter,
+  selected/preset state for all eight slots, plus a larger master section.
+- **Large contextual knobs** — three large cards per row, real APVTS parameters,
+  unit-aware values, double-click reset and editable numbers.
 - **Instrument library** — Harmony, Fuzz, Tape Distortion, Ring Mod, LFO Filter,
   Radio, Auto Wah, Stutter, Reverse, Tape Stop, Freeze, Scatter, Granular,
   Chorus, Flanger, Phaser, Tremolo, Vibrato, LFO Deathy, LFO Haunted Radio,
@@ -60,7 +62,7 @@ LunaFX/
     Params.h           parameter table, instrument library, presets
     PluginProcessor.*  APVTS, slot mix, state migration, panic request
     PluginEditor.*     layout, rack, context panel, preset overlay
-    UiWidgets.h        lunar LookAndFeel, XY circle, knobs, rack rows
+    UiWidgets.h        lunar LookAndFeel, octagonal XY field, knobs, rack rows
   tests/
     test_engine.cpp
     test_engine_smoke.cpp

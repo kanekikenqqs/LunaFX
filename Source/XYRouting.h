@@ -1,43 +1,42 @@
 // =============================================================================
-//  Luna FX - eight-slot XY proximity routing.
+//  Luna FX - eight-vertex octagonal XY field.
 //
-//  This header is intentionally independent of JUCE so the exact same mapping
-//  can be unit-tested on CI and reasoned about without a host.
+//  The control surface is a regular octagon. Its eight vertices are the eight
+//  instrument points, four on the left half and four on the right half.
 //
-//  Layout (normalised unit disk, y points UP):
+//  Node layout (angles counter-clockwise from +x, y points UP):
 //
-//        slot 0        slot 4
-//     slot 1  \      /  slot 5
-//              \    /
-//     slot 2  /    \  slot 6
-//        slot 3        slot 7
-//
-//  Slots 0..3 are on the left half, slots 4..7 on the right half. Every slot is
-//  a fixed instrument node on the rim at radius kSlotRadius.
+//        slot 4        slot 0
+//             \      /
+//     slot 5   \    /   slot 1
+//               \  /
+//               centre
+//               /  \
+//     slot 6   /    \   slot 2
+//             /      \
+//        slot 7        slot 3
 //
 //  Influence model
 //  ---------------
-//  For a puck at (x, y) and node i at (nx, ny):
+//  Each vertex has a broad angular field and a radial gate:
 //
-//      d_i = sqrt((x - nx)^2 + (y - ny)^2)          Euclidean distance
-//      s_i = clamp01(1 - d_i / kProximityFalloff)   linear distance window
-//      w_i = smoothstep(s_i) = s_i^2 * (3 - 2*s_i)  C1-continuous falloff
+//      r        = length(puck)
+//      radial   = smoothstep(clamp01(r / kRadialGate))      0 at centre, 1 at rim
+//      dAngle   = shortest angular distance to the vertex
+//      angular  = exp(-0.5 * (dAngle / kAngularSigma)^2)     1 at the vertex
+//      w_i      = radial * angular
 //
-//  w_i is exactly 1 when the puck sits on the node and exactly 0 when the puck
-//  is farther than kProximityFalloff away. smoothstep gives a zero slope at
-//  both ends, so there is no sudden jump or angular discontinuity as the puck
-//  crosses a zone boundary or orbits the centre. The function is radial, not
-//  angular: it depends only on physical distance, never on the angle of the
-//  node or on which side of the circle the puck is.
+//  Properties:
+//    - w = 1 at the vertex.
+//    - w = 0 at the centre.
+//    - at half the centre-to-vertex distance, the aligned vertex is ~54%.
+//    - at a vertex, the two 45-degree neighbours are ~36% each, so three or
+//      four tools are always meaningfully active across the field.
+//    - the Gaussian angular field overlaps smoothly; there are no sectors,
+//      hard borders, or angular jumps.
 //
-//  kProximityFalloff = 0.62 (in unit-disk units) was chosen so that:
-//    - the centre is completely dry (nearest node is 0.86 away),
-//    - a single node dominates near the rim (adjacent node gets ~11%),
-//    - neighbours still crossfade smoothly at their midpoint (~66% each).
-//
-//  The audio engine multiplies this proximity by the slot's maximum mix and by
-//  the XY depth control; the result is clamped to 0..1. An unassigned or
-//  disabled slot is forced to zero and therefore stays effectively dry.
+//  The puck is clamped to the octagon. Only this header defines the mapping;
+//  the engine and the UI both use it.
 // =============================================================================
 #pragma once
 #include <algorithm>
@@ -49,18 +48,29 @@ namespace params
 constexpr int   kNumSlots          = 8;
 constexpr int   kSlotsPerSide      = 4;
 constexpr float kSlotRadius        = 0.86f;
-constexpr float kProximityFalloff  = 0.62f;
+constexpr float kRadialGate        = 0.82f;   // smooth radial fade-in
+constexpr float kAngularSigmaRad   = 0.55f;   // ~32 degrees, broad overlap
 
 struct SlotPosition { float x = 0.f, y = 0.f; };
 
-// Angles in degrees measured counter-clockwise from +x, with +y pointing up.
-// Left side runs top -> bottom; left/right are mirrored.
+// Left side top -> bottom, then right side top -> bottom. This is a regular
+// octagon rotated by 22.5 degrees, which gives exactly four vertices on each
+// half of the field.
 inline constexpr float kSlotAngleDeg[kNumSlots] = {
-    130.0f, 163.33333f, 196.66667f, 230.0f,
-     50.0f,  16.66667f, -16.66667f, -50.0f
+    112.5f, 157.5f, 202.5f, 247.5f,
+     67.5f,  22.5f, -22.5f, -67.5f
 };
 
+// Perimeter order around the octagon (counter-clockwise).
+inline constexpr int kFieldOrder[kNumSlots] = { 4, 0, 1, 2, 3, 7, 6, 5 };
+
 inline float clamp01 (float v) noexcept { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); }
+
+inline float smoothstep01 (float v) noexcept
+{
+    v = clamp01 (v);
+    return v * v * (3.f - 2.f * v);
+}
 
 inline SlotPosition slotPosition (int slot) noexcept
 {
@@ -70,39 +80,88 @@ inline SlotPosition slotPosition (int slot) noexcept
     return { kSlotRadius * std::cos (a), kSlotRadius * std::sin (a) };
 }
 
-// Clamps a puck position into the unit disk while preserving its direction.
-inline SlotPosition clampToDisk (float x, float y) noexcept
+inline SlotPosition fieldVertex (int perimeterIndex) noexcept
 {
-    const float len = std::sqrt (x * x + y * y);
-    if (len > 1.f && len > 0.f) { x /= len; y /= len; }
-    return { x, y };
+    return slotPosition (kFieldOrder[(size_t) (perimeterIndex % kNumSlots)]);
 }
 
-// Distance-based influence for one slot, in 0..1. Continuous in x and y.
-inline float slotProximity (float x, float y, int slot,
-                            float falloff = kProximityFalloff) noexcept
+inline bool insideField (float x, float y) noexcept
+{
+    // Convex polygon; the field order is counter-clockwise.
+    constexpr float eps = -1.0e-6f;
+    for (int i = 0; i < kNumSlots; ++i)
+    {
+        const auto a = fieldVertex (i);
+        const auto b = fieldVertex (i + 1);
+        const float cross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+        if (cross < eps) return false;
+    }
+    return true;
+}
+
+// Projects a point onto the convex octagon. Used by the UI so the puck can
+// never leave the field, and by the audio mapping so automation is safe.
+inline SlotPosition clampToField (float x, float y) noexcept
+{
+    if (insideField (x, y)) return { x, y };
+
+    float bestX = 0.f, bestY = 0.f;
+    float bestD = 3.4e38f;
+    for (int i = 0; i < kNumSlots; ++i)
+    {
+        const auto a = fieldVertex (i);
+        const auto b = fieldVertex (i + 1);
+        const float dx = b.x - a.x, dy = b.y - a.y;
+        const float len2 = dx * dx + dy * dy;
+        float t = len2 > 0.f ? ((x - a.x) * dx + (y - a.y) * dy) / len2 : 0.f;
+        t = std::max (0.f, std::min (1.f, t));
+        const float qx = a.x + t * dx, qy = a.y + t * dy;
+        const float d = (x - qx) * (x - qx) + (y - qy) * (y - qy);
+        if (d < bestD) { bestD = d; bestX = qx; bestY = qy; }
+    }
+    return { bestX, bestY };
+}
+
+inline float shortestAngle (float a) noexcept
+{
+    constexpr float twoPi = 6.28318530717958647692f;
+    constexpr float pi = 3.14159265358979323846f;
+    a = std::fmod (a + pi, twoPi);
+    if (a < 0.f) a += twoPi;
+    return a - pi;
+}
+
+// Influence for an already-clamped point. The UI and the processor call the
+// public overload below; this one exists to avoid clamping eight times.
+inline float slotProximityAt (const SlotPosition& p, int slot) noexcept
 {
     if (slot < 0 || slot >= kNumSlots) return 0.f;
-    const auto p = clampToDisk (x, y);
     const auto n = slotPosition (slot);
-    const float dx = p.x - n.x, dy = p.y - n.y;
-    const float d = std::sqrt (dx * dx + dy * dy);
-    const float f = std::max (1.0e-4f, falloff);
-    const float s = clamp01 (1.f - d / f);
-    return s * s * (3.f - 2.f * s);
+    const float r = std::sqrt (p.x * p.x + p.y * p.y);
+    const float radial = smoothstep01 (r / kRadialGate);
+
+    const float nodeAngle = std::atan2 (n.y, n.x);
+    const float puckAngle = std::atan2 (p.y, p.x);
+    const float dAngle = std::abs (shortestAngle (puckAngle - nodeAngle));
+    const float angular = std::exp (-0.5f * (dAngle / kAngularSigmaRad) * (dAngle / kAngularSigmaRad));
+
+    return clamp01 (radial * angular);
 }
 
-// Fills w[8] with the proximity of every slot. w may not be null.
-inline void slotWeights (float x, float y, float* w,
-                         float falloff = kProximityFalloff) noexcept
+inline float slotProximity (float x, float y, int slot) noexcept
+{
+    const auto p = clampToField (x, y);
+    return slotProximityAt (p, slot);
+}
+
+inline void slotWeights (float x, float y, float* w) noexcept
 {
     if (w == nullptr) return;
-    const auto p = clampToDisk (x, y);
+    const auto p = clampToField (x, y);
     for (int i = 0; i < kNumSlots; ++i)
-        w[i] = slotProximity (p.x, p.y, i, falloff);
+        w[i] = slotProximityAt (p, i);
 }
 
-// Convenience helper used by the UI and by documentation examples.
 inline std::array<float, kNumSlots> slotWeights (float x, float y) noexcept
 {
     std::array<float, kNumSlots> w {};

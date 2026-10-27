@@ -123,68 +123,39 @@ void RackPanel::setSelectedSlot (int slot)
 
 void RackPanel::resized()
 {
-    cats.setBounds (4, 4, getWidth() - 8, 30);
+    cats.setBounds (6, 6, getWidth() - 12, 32);
     for (int i = 0; i < params::kNumSlots; ++i)
-        rows[(size_t) i]->setBounds (6, 54 + i * 58, getWidth() - 12, 56);
+        rows[(size_t) i]->setBounds (6, 70 + i * 90, getWidth() - 12, 88);
 
-    const int kw = 100, kh = 108;
-    inKnob->setBounds (14, 700, kw, kh);
-    outKnob->setBounds (124, 700, kw, kh);
-    dryKnob->setBounds (234, 700, kw, kh);
+    inKnob->setBounds (14, 820, 112, 140);
+    outKnob->setBounds (140, 820, 112, 140);
+    dryKnob->setBounds (266, 820, 112, 140);
 }
 
 void RackPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1.f);
     g.setColour (panel().withAlpha (isDay() ? 0.82f : 0.72f));
-    g.fillRoundedRectangle (b, 9.f);
+    g.fillRoundedRectangle (b, 10.f);
     g.setColour (line());
-    g.drawRoundedRectangle (b, 9.f, 1.f);
+    g.drawRoundedRectangle (b, 10.f, 1.f);
 
     g.setColour (text());
-    g.setFont (Font (12.f).boldened());
-    g.drawText ("INSTRUMENT RACK", 10, 36, 200, 18, Justification::centredLeft, false);
+    g.setFont (Font (14.f).boldened());
+    g.drawText ("INSTRUMENT RACK", 12, 40, 230, 22, Justification::centredLeft, false);
     g.setColour (muted());
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("MAX = CEILING   LIVE = XY", 10, 36, getWidth() - 20, 18,
+    g.setFont (Font (9.f).boldened());
+    g.drawText ("MIX PER TOOL  ·  LIVE FROM XY", 120, 40, getWidth() - 132, 22,
                 Justification::centredRight, false);
 
-    // signal flow
-    g.setColour (muted());
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("SIGNAL FLOW", 14, 532, 140, 14, Justification::centredLeft, false);
-    const char* names[5] = { "PITCH", "FX", "GLITCH", "MOD", "TIME" };
-    static const int catsIdx[5] = { 0, 1, 2, 3, 5 };
-    int y = 550;
-    for (int i = 0; i < 5; ++i)
-    {
-        auto chip = Rectangle<float> (14.f, (float) y, 92.f, 18.f);
-        const Colour c = params::catColour (catsIdx[i]);
-        g.setColour (c.withAlpha (0.10f));
-        g.fillRoundedRectangle (chip, 4.f);
-        g.setColour (c.withAlpha (0.55f));
-        g.drawRoundedRectangle (chip, 4.f, 1.f);
-        g.setColour (muted());
-        g.setFont (Font (8.f).boldened());
-        g.drawText (names[i], chip, Justification::centred);
-        if (i < 4)
-        {
-            g.setColour (line());
-            g.drawLine (110.f, (float) y + 9.f, 128.f, (float) y + 9.f, 1.f);
-        }
-        y += 22;
-    }
-    g.setColour (muted().withAlpha (0.8f));
-    g.setFont (Font (7.5f));
-    g.drawFittedText ("Serial. Slots sum into their category; proximity sets live wet.",
-                      Rectangle<int> (14, 662, getWidth() - 28, 14), Justification::topLeft, 1, 0.75f);
-
+    // Master section. The old non-interactive signal-flow menu was removed and
+    // the space is now used by the eight rows and these larger master knobs.
     g.setColour (text());
-    g.setFont (Font (10.f).boldened());
-    g.drawText ("MASTER", 14, 680, 200, 16, Justification::centredLeft, false);
+    g.setFont (Font (13.f).boldened());
+    g.drawText ("MASTER", 14, 800, 200, 20, Justification::centredLeft, false);
     g.setColour (muted());
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("GLOBAL", 14, 680, getWidth() - 28, 16, Justification::centredRight, false);
+    g.setFont (Font (9.f).boldened());
+    g.drawText ("GLOBAL", 14, 800, getWidth() - 28, 20, Justification::centredRight, false);
 }
 
 // =============================================================================
@@ -208,7 +179,6 @@ void ContextPanel::rebuild()
     if (slot >= 0 && params::isVisibleFx (fx))
     {
         const Colour c = fxColour (fx);
-        cards.push_back (std::make_unique<ui::KnobCard> (proc.apvts, params::amtId (fx), "Max Mix", c));
         cards.push_back (std::make_unique<ui::KnobCard> (proc.apvts, params::slotLevelId (slot), "Output", c));
         for (const auto& id : params::fxInfo()[(size_t) fx].details)
         {
@@ -252,13 +222,13 @@ void ContextPanel::resized()
 {
     if (getWidth() <= 0 || getHeight() <= 0) return;
     auto area = getLocalBounds().reduced (8);
-    area.removeFromTop (54);
-    const int cols = 3, gap = 5;
+    area.removeFromTop (70);
+    const int cols = 3, gap = 6;
     const int n = (int) cards.size();
     if (n == 0) return;
     const int rowsNeeded = (n + cols - 1) / cols;
     const int cellW = (area.getWidth() - (cols - 1) * gap) / cols;
-    const int cellH = jlimit (100, 172, (area.getHeight() - (rowsNeeded - 1) * gap) / jmax (1, rowsNeeded));
+    const int cellH = jlimit (118, 205, (area.getHeight() - (rowsNeeded - 1) * gap) / jmax (1, rowsNeeded));
     for (int i = 0; i < n; ++i)
     {
         const int r = i / cols, c = i % cols;
@@ -289,26 +259,26 @@ void ContextPanel::paint (Graphics& g)
     const auto* enableParam = proc.apvts.getRawParameterValue (params::slotEnableId (slot));
     const bool enabled = enableParam == nullptr || enableParam->load() > 0.5f;
     g.setColour (c.withAlpha (0.09f));
-    g.fillRoundedRectangle (8.f, 8.f, (float) getWidth() - 16.f, 42.f, 6.f);
+    g.fillRoundedRectangle (8.f, 8.f, (float) getWidth() - 16.f, 60.f, 6.f);
 
     g.setColour (muted());
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("SELECTED SLOT " + String (slot + 1), 16, 12, 220, 12, Justification::centredLeft, false);
+    g.setFont (Font (9.5f).boldened());
+    g.drawText ("SELECTED SLOT " + String (slot + 1), 16, 11, 240, 14, Justification::centredLeft, false);
     g.setColour (assigned && enabled ? text() : muted());
-    g.setFont (Font (16.f).boldened());
+    g.setFont (Font (19.f).boldened());
     g.drawText (assigned ? String (djx::kFxNames[fx]) : String ("Unassigned"),
-                16, 24, getWidth() - 32, 22, Justification::centredLeft, false);
+                16, 25, getWidth() - 32, 26, Justification::centredLeft, false);
     g.setColour (assigned ? c : muted());
-    g.setFont (Font (8.f).boldened());
+    g.setFont (Font (9.5f).boldened());
     g.drawText (assigned ? (enabled ? categoryLabel (djx::kFxCategory[fx]).toUpperCase()
                                     : String ("DISABLED"))
                          : String ("CHOOSE CHANGE IN THE RACK"),
-                getWidth() - 180, 12, 168, 12, Justification::centredRight, false);
+                getWidth() - 190, 11, 176, 14, Justification::centredRight, false);
 
     if (! assigned)
     {
         g.setColour (muted());
-        g.setFont (Font (11.f));
+        g.setFont (Font (12.f));
         g.drawFittedText ("This slot is empty. Use CHANGE in the rack to assign one of the instruments. Every visible knob is a real parameter.",
                           getLocalBounds().reduced (24).withTrimmedTop (90), Justification::topLeft, 4);
         return;
@@ -317,19 +287,18 @@ void ContextPanel::paint (Graphics& g)
     const float live = proc.slotLiveMix (slot);
     const auto* amtParam = proc.apvts.getRawParameterValue (params::amtId (fx));
     const float maxMix = amtParam != nullptr ? amtParam->load() : 0.f;
-    auto meter = Rectangle<float> (16.f, 40.f, (float) getWidth() - 32.f, 5.f);
-    g.setColour (line());
-    g.fillRoundedRectangle (meter, 2.5f);
+    auto meter = Rectangle<float> (16.f, 48.f, (float) getWidth() - 32.f, 6.f);    g.setColour (line());
+    g.fillRoundedRectangle (meter, 3.f);
     g.setColour (c.withAlpha (0.9f));
-    g.fillRoundedRectangle (meter.withWidth (jmax (2.f, meter.getWidth() * jlimit (0.f, 1.f, live))), 2.5f);
+    g.fillRoundedRectangle (meter.withWidth (jmax (2.f, meter.getWidth() * jlimit (0.f, 1.f, live))), 3.f);
     g.setColour (text().withAlpha (0.5f));
     g.fillRect (meter.getX() + meter.getWidth() * jlimit (0.f, 1.f, maxMix) - 0.5f,
                 meter.getY() - 1.f, 1.f, meter.getHeight() + 2.f);
     g.setColour (muted());
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("LIVE " + String (roundToInt (live * 100.f)) + "%  ·  MAX "
+    g.setFont (Font (9.f).boldened());
+    g.drawText ("LIVE " + String (roundToInt (live * 100.f)) + "%  ·  MIX "
                 + String (roundToInt (maxMix * 100.f)) + "%",
-                (int) meter.getX(), 46, (int) meter.getWidth(), 12,
+                (int) meter.getX(), 58, (int) meter.getWidth(), 12,
                 Justification::centredRight, false);
 }
 
@@ -365,7 +334,7 @@ PresetOverlay::PresetOverlay (LunaFXProcessor& p) : proc (p)
     }
     addAndMakeVisible (list);
     list.setModel (&model);
-    list.setRowHeight (34);
+    list.setRowHeight (38);
     list.setColour (ListBox::backgroundColourId, Colours::transparentBlack);
     list.setColour (ListBox::outlineColourId, line());
     refresh();
@@ -543,13 +512,13 @@ void PresetOverlay::paint (Graphics& g)
     g.drawLine (0.f, 51.f, (float) getWidth(), 51.f, 1.f);
 
     g.setColour (text());
-    g.setFont (Font (22.f).boldened());
-    g.drawText ("PRESET LIBRARY", 16, 10, 340, 30, Justification::centredLeft, false);
+    g.setFont (Font (24.f).boldened());
+    g.drawText ("PRESET LIBRARY", 16, 8, 380, 36, Justification::centredLeft, false);
     g.setColour (muted());
-    g.setFont (Font (9.f).boldened());
+    g.setFont (Font (10.f).boldened());
     const String subtitle = folder == 0 ? String ("FACTORY PROGRAMMES")
                                         : String ("USER PRESETS · ") + String ((int) cachedUserFiles.size());
-    g.drawText (subtitle, 160, 20, 300, 16, Justification::centredLeft, false);
+    g.drawText (subtitle, 178, 20, 300, 18, Justification::centredLeft, false);
 
     for (int i = 0; i < catButtons.size(); ++i)
     {
@@ -602,10 +571,10 @@ void PresetOverlay::resized()
     int y = 70;
     for (int i = 0; i < catButtons.size(); ++i)
     {
-        catButtons[i]->setBounds (16, y, 220, 26);
-        y += 30;
+        catButtons[i]->setBounds (16, y, 244, 28);
+        y += 31;
     }
-    list.setBounds (260, 70, getWidth() - 280, getHeight() - 130);
+    list.setBounds (300, 70, getWidth() - 320, getHeight() - 130);
 }
 
 int PresetOverlay::Model::getNumRows() { return owner != nullptr ? (int) owner->rows.size() : 0; }
@@ -635,11 +604,11 @@ void PresetOverlay::Model::paintListBoxItem (int row, Graphics& g, int w, int h,
         cat = "USER";
     }
     g.setColour (selected ? text() : text().withAlpha (0.86f));
-    g.setFont (Font (13.f));
-    g.drawText (name, 14, 0, w - 150, h, Justification::centredLeft, false);
+    g.setFont (Font (14.5f));
+    g.drawText (name, 14, 0, w - 160, h, Justification::centredLeft, false);
     g.setColour (muted());
-    g.setFont (Font (9.f));
-    g.drawText (cat, w - 140, 0, 126, h, Justification::centredRight, false);
+    g.setFont (Font (10.f));
+    g.drawText (cat, w - 150, 0, 136, h, Justification::centredRight, false);
 }
 
 void PresetOverlay::Model::listBoxItemClicked (int row, const MouseEvent&)
@@ -672,9 +641,9 @@ LunaFXEditor::LunaFXEditor (LunaFXProcessor& p)
     content.addAndMakeVisible (browseBtn);
     content.addAndMakeVisible (themeBtn);
 
-    depthKnob = std::make_unique<ui::KnobCard> (proc.apvts, "padDepth", "XY Depth", accent());
-    fadeKnob  = std::make_unique<ui::KnobCard> (proc.apvts, "fade", "Fade", accentSoft());
-    chaosKnob = std::make_unique<ui::KnobCard> (proc.apvts, "chaos", "Chaos", accentSoft());
+    depthKnob = std::make_unique<ui::KnobCard> (proc.apvts, "padDepth", "XY Depth", accent(), true);
+    fadeKnob  = std::make_unique<ui::KnobCard> (proc.apvts, "fade", "Fade", accentSoft(), true);
+    chaosKnob = std::make_unique<ui::KnobCard> (proc.apvts, "chaos", "Chaos", accentSoft(), true);
     content.addAndMakeVisible (*depthKnob);
     content.addAndMakeVisible (*fadeKnob);
     content.addAndMakeVisible (*chaosKnob);
@@ -724,7 +693,7 @@ LunaFXEditor::LunaFXEditor (LunaFXProcessor& p)
     themeBtn.setButtonText (ui::isDay() ? "NIGHT" : "DAY");
 
     setResizable (true, true);
-    setResizeLimits (1008, 630, 2304, 1440);
+    setResizeLimits (1120, 700, 2400, 1500);
     getConstrainer()->setFixedAspectRatio ((double) kDesignW / (double) kDesignH);
     setSize (kDesignW, kDesignH);
     startTimerHz (30);
@@ -748,9 +717,9 @@ void LunaFXEditor::paintContent (Graphics& g)
     g.setGradientFill (ColourGradient (bgTop(), 0.f, 0.f, bgBottom(), 0.f, H, false));
     g.fillAll();
 
-    // left lunar field glow behind the circle
-    g.setGradientFill (ColourGradient (accent().withAlpha (isDay() ? 0.06f : 0.075f), 358.f, 420.f,
-                                       Colours::transparentBlack, 358.f, 820.f, true));
+    // left lunar field glow behind the octagon
+    g.setGradientFill (ColourGradient (accent().withAlpha (isDay() ? 0.06f : 0.075f), 400.f, 470.f,
+                                       Colours::transparentBlack, 400.f, 900.f, true));
     g.fillRect (0.f, (float) kTopH, (float) kLeftW, H - (float) kTopH);
 
     // top bar
@@ -760,55 +729,55 @@ void LunaFXEditor::paintContent (Graphics& g)
     g.drawLine (0.f, (float) kTopH, W, (float) kTopH, 1.f);
 
     g.setColour (text());
-    g.setFont (Font (25.f).boldened());
-    g.drawText ("LUNA", 16, 10, 78, 30, Justification::centredLeft, false);
+    g.setFont (Font (28.f).boldened());
+    g.drawText ("LUNA", 18, 12, 92, 34, Justification::centredLeft, false);
     g.setColour (accent());
-    g.setFont (Font (17.f).boldened());
-    g.drawText ("FX", 92, 14, 32, 24, Justification::centredLeft, false);
+    g.setFont (Font (19.f).boldened());
+    g.drawText ("FX", 108, 17, 38, 26, Justification::centredLeft, false);
 
-    auto badge = Rectangle<float> (126.f, 15.f, 46.f, 20.f);
+    auto badge = Rectangle<float> (154.f, 18.f, 52.f, 22.f);
     g.setColour (panelRaised());
     g.fillRoundedRectangle (badge, 4.f);
     g.setColour (line());
     g.drawRoundedRectangle (badge, 4.f, 1.f);
     g.setColour (muted());
-    g.setFont (Font (8.f).boldened());
+    g.setFont (Font (9.f).boldened());
     g.drawText ("1.3.0", badge, Justification::centred);
 
-    g.setColour (muted().withAlpha (0.75f));
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("8 SLOT XY PERFORMANCE INSTRUMENT", 720, 18, 260, 12, Justification::centredLeft, false);
-    g.drawText ("PRESET", 220, 2, 100, 11, Justification::centredLeft, false);
+    g.setColour (muted().withAlpha (0.85f));
+    g.setFont (Font (9.f).boldened());
+    g.drawText ("8 VERTEX OCTAGONAL FIELD", 884, 20, 190, 14, Justification::centredLeft, false);
+    g.drawText ("PRESET", 288, 3, 100, 12, Justification::centredLeft, false);
 
     // left performance strip
     g.setColour (line());
-    g.drawLine (16.f, 786.f, (float) kLeftW - 16.f, 786.f, 1.f);
+    g.drawLine (16.f, 866.f, (float) kLeftW - 16.f, 866.f, 1.f);
     g.setColour (muted());
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("PERFORMANCE", 20, 770, 140, 12, Justification::centredLeft, false);
-    g.drawText ("XY DEPTH · FADE · CHAOS · ACCENT", 160, 770, 330, 12, Justification::centredLeft, false);
+    g.setFont (Font (9.f).boldened());
+    g.drawText ("PERFORMANCE", 20, 870, 150, 14, Justification::centredLeft, false);
+    g.drawText ("XY DEPTH · FADE · CHAOS · ACCENT", 172, 870, 340, 14, Justification::centredLeft, false);
 
     // right panel labels
     g.setColour (muted());
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("INSTRUMENTS", Rectangle<float> ((float) kRackX + 4.f, 46.f, 120.f, 12.f),
+    g.setFont (Font (9.f).boldened());
+    g.drawText ("INSTRUMENTS", Rectangle<float> ((float) kRackX + 4.f, 50.f, 130.f, 14.f),
                 Justification::centredLeft, false);
-    g.drawText ("EFFECT PARAMETERS", Rectangle<float> ((float) kCtxX + 4.f, 46.f, 180.f, 12.f),
+    g.drawText ("EFFECT PARAMETERS", Rectangle<float> ((float) kCtxX + 4.f, 50.f, 190.f, 14.f),
                 Justification::centredLeft, false);
-    g.drawText ("SLOT 1 - 8", Rectangle<float> ((float) kRackX + 230.f, 46.f, 110.f, 12.f),
+    g.drawText ("SLOT 1 - 8", Rectangle<float> ((float) kRackX + 250.f, 50.f, 130.f, 14.f),
                 Justification::centredRight, false);
 
     // status
     g.setColour (line());
-    g.drawLine (0.f, 884.f, W, 884.f, 1.f);
+    g.drawLine (0.f, 984.f, W, 984.f, 1.f);
     g.setColour (muted().withAlpha (0.9f));
-    g.setFont (Font (8.f).boldened());
-    g.drawText ("LUNA FX  " + String (params::kVersion) + "  ·  8 SLOTS  ·  DISTANCE MIX",
-                16, 885, 360, 14, Justification::centredLeft, false);
-    g.drawText ("EVERY KNOB IS AN APVTS PARAMETER", 380, 885, 380, 14, Justification::centredLeft, false);
+    g.setFont (Font (9.f).boldened());
+    g.drawText ("LUNA FX  " + String (params::kVersion) + "  ·  8 SLOTS  ·  OCTAGONAL DISTANCE MIX",
+                16, 985, 480, 14, Justification::centredLeft, false);
+    g.drawText ("EVERY KNOB IS AN APVTS PARAMETER", 500, 985, 380, 14, Justification::centredLeft, false);
     g.setColour (silver().withAlpha (0.85f));
-    g.drawText ("SILVER RING = PRESET ASSIGNED  ·  COLOUR GLOW = LIVE",
-                Rectangle<float> (W - 430.f, 885.f, 414.f, 14.f), Justification::centredRight, false);
+    g.drawText ("SILVER RING = PRESET  ·  COLOUR ZONES = LIVE FIELD",
+                Rectangle<float> (W - 470.f, 985.f, 454.f, 14.f), Justification::centredRight, false);
 }
 
 void LunaFXEditor::resized()
@@ -816,26 +785,26 @@ void LunaFXEditor::resized()
     content.setBounds (0, 0, kDesignW, kDesignH);
     content.setTransform (AffineTransform::scale ((float) getWidth() / (float) kDesignW));
 
-    circle.setBounds (0, 64, kLeftW, 700);
-    rack.setBounds (kRackX, 64, kRackW, 820);
-    context.setBounds (kCtxX, 64, kCtxW, 820);
+    circle.setBounds (0, 70, kLeftW, 780);
+    rack.setBounds (kRackX, 70, kRackW, 914);
+    context.setBounds (kCtxX, 70, kCtxW, 914);
 
-    accentButton.setBounds (18, 796, 112, 82);
-    depthKnob->setBounds (146, 790, 92, 92);
-    fadeKnob ->setBounds (244, 790, 92, 92);
-    chaosKnob->setBounds (342, 790, 92, 92);
-    touchToggle ->setBounds (446, 800, 160, 24);
-    springToggle->setBounds (446, 832, 160, 24);
+    accentButton.setBounds (22, 884, 112, 88);
+    depthKnob->setBounds (170, 878, 110, 104);
+    fadeKnob ->setBounds (292, 878, 110, 104);
+    chaosKnob->setBounds (414, 878, 110, 104);
+    touchToggle ->setBounds (548, 890, 180, 26);
+    springToggle->setBounds (548, 924, 180, 26);
 
-    presetPrev.setBounds (186, 18, 26, 28);
-    presetName.setBounds (214, 16, 292, 30);
-    presetNext.setBounds (508, 18, 26, 28);
-    saveBtn.setBounds (548, 18, 58, 28);
-    browseBtn.setBounds (612, 18, 82, 28);
-    themeBtn.setBounds (1000, 18, 64, 28);
+    presetPrev.setBounds (250, 18, 32, 32);
+    presetName.setBounds (288, 16, 340, 34);
+    presetNext.setBounds (636, 18, 32, 32);
+    saveBtn.setBounds (682, 18, 66, 30);
+    browseBtn.setBounds (756, 18, 96, 30);
+    themeBtn.setBounds (1080, 18, 96, 30);
 
-    kill.setBounds (1196, 16, 70, 30);
-    bypass.setBounds (1272, 16, 128, 30);
+    kill.setBounds (1270, 16, 86, 32);
+    bypass.setBounds (1364, 16, 150, 32);
 
     presets.setBounds (0, kTopH, kDesignW, kDesignH - kTopH);
 }

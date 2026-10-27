@@ -1,30 +1,37 @@
 # Luna FX 1.3.0
 
-## Eight-slot XY circle
+## Eight-vertex octagonal field
 
-- Exactly eight instrument nodes: four on the left side, four on the right.
-- Nodes are fixed positions; the rack and the circle share the same eight slots.
-- Distance-based live mix documented in `MIX-MODEL.md`: Euclidean distance,
-  smoothstep falloff, zero at the centre, one on a node.
+- Exactly eight instrument vertices on a regular octagon: four on the left,
+  four on the right.
+- Influence is now broad radial × Gaussian angular: 100% at a vertex, exactly
+  dry at the centre, 53.7% at half the centre-to-vertex distance and around 36%
+  on each 45-degree neighbour. Three or four tools remain active across the
+  field instead of a single narrow "hot spot".
+- The puck is clamped to the octagon; automation outside it is projected safely.
+- Each vertex has its own large DRY/WET knob in the rack, always visible and
+  editable, even when the slot is powered off or another tool is selected.
+  The knob sets that tool's maximum wet level independently.
+- Broad overlapping colour zones, vertex halos, weighted connection lines,
+  travelling dots, an octagonal rim/echo, silver preset rings and a dry-centre
+  vignette.
 - Maximum mix, live proximity mix, enable, output level and master dry/wet are
-  separate controls. Unassigned and disabled instruments are forced dry.
-- Node brightness, glow, connection line, rack meter and percentage all follow
-  the smoothed proximity. Preset assignment is shown by a separate silver ring.
-- Puck remains inside the disk, node clicks do not move it, arrow keys and Home
-  work, and long gestures produce a bounded number of host notifications.
+  separate. Unassigned and disabled instruments are forced dry.
+- Puck remains inside the octagon, node clicks do not move it, arrow keys and
+  Home work, and long gestures produce a bounded number of host notifications.
 
 ## Rack and editor
 
-- New 1440×900 responsive layout: vector lunar circle, 350 px instrument rack,
-  358 px contextual parameter panel, top preset/global bar, performance strip.
-- Eight rack rows with enable, name/category, assignment, maximum-mix slider,
+- New 1600×1000 responsive layout: larger octagonal field, larger rack rows,
+  larger context knobs and larger type throughout.
+- Removed the non-interactive SIGNAL FLOW menu. Its space now gives the rack
+  eight taller rows, eight per-tool knobs and three larger master knobs.
+- Eight rack rows with power, per-tool DRY/WET knob, name/category, assignment,
   live proximity meter, selected and preset states.
-- Large parameter cards (three per row) replace the small 72 px controls. Each
-  card has a track, progress arc, indicator, readable name, unit-aware value,
-  double-click reset and editable numeric value.
-- Context panel updates on slot selection, preset load, automation, enable
-  change and state restore.
-- Category tabs navigate the slots and act as the assignment palette.
+- Context panel shows Output plus the selected effect's controls (three per row,
+  substantially larger cards).
+- Category tabs navigate the slots and stay synchronized with preset/automation
+  changes.
 - Night is the default; Day is a full alternate palette.
 - Preset library overlay grouped by category, with factory and user presets.
 
@@ -58,8 +65,8 @@
 
 ## Tests
 
-- New 8-slot XY C++ tests and Python reference model (19 checks).
-- 60 source-level regression checks: parameter IDs, presets, eight-slot
+- New eight-vertex octagonal XY C++ tests and Python reference model (25 checks).
+- 65 source-level regression checks: parameter IDs, presets, eight-slot
   invariants, null guards, audio-thread allocations, feedback clamps, formatting
   and build metadata.
 - DSP tests extended for granular extremes, clearTails and delay freeze.

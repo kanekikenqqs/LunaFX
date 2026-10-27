@@ -42,9 +42,9 @@ The new source removes the class of defect rather than relying on one guard:
   key callback; deletion is deferred and SafePointer-checked.
 - The eight slots are a fixed array with bounds checks in every lookup.
 
-## Eight-slot XY model
+## Eight-vertex octagonal field
 
-The circle and the rack now represent the same eight slots:
+The octagonal field and the rack now represent the same eight slots:
 
 - slots 0–3 on the left arc,
 - slots 4–7 on the right arc,
@@ -82,16 +82,17 @@ processes” behaviour is gone.
 
 ## UI
 
-The editor is a 1440×900 responsive layout with a Night/Day theme:
+The editor is a 1600×1000 responsive layout with a Night/Day theme:
 
-- vector lunar XY circle (no pixel texture), eight named nodes, smoothed
-  proximity glow, live percentage, distinct silver preset-assignment rings,
-  keyboard support (arrow keys, Home, double-click centre) and accessibility
-  titles/tooltips;
-- 350 px rack with eight compact slot rows: enable, name/category, assignment,
-  maximum mix, live proximity meter and selected/preset states;
-- 358 px context panel with large parameter cards (three per row) including
-  Maximum Mix and Output; every control is an APVTS parameter;
+- vector octagonal field (no pixel texture) with eight vertices, broad overlapping
+  influence zones, smoothed proximity glow, live percentage, distinct silver
+  preset-assignment rings, keyboard support (arrow keys, Home, double-click
+  centre) and accessibility titles/tooltips;
+- 392 px rack with eight tall slot rows: power, a per-tool DRY/WET knob, name,
+  assignment, live proximity meter and selected/preset states; the
+  non-interactive signal-flow menu was removed so this section can be larger;
+- 384 px context panel with large parameter cards (three per row) including
+  Output; every control is an APVTS parameter;
 - top bar preset navigation/save, global kill and bypass;
 - performance strip with Accent, XY Depth, Fade, Chaos, Touch and Spring;
 - preset library overlay grouped by category, factory and user presets;
@@ -121,11 +122,11 @@ defaults. Native A/B testing is still required on Windows.
 
 ## Tests executed in this environment
 
-- `python tests/test_xy_model.py` — 19/19 passed. This parses the C++ constants
+- `python tests/test_xy_model.py` — 25/25 passed. This parses the C++ constants
   and independently verifies the documented distance function: centre dry, node
   peak, monotonic approach, continuity, mirror symmetry, adjacent blend, bounds,
   and max-mix/depth/effective-wet arithmetic.
-- `python tests/test_source_sanity.py` — 60/60 passed. Checks parameter-ID
+- `python tests/test_source_sanity.py` — 65/65 passed. Checks parameter-ID
   integrity, preset integrity, eight-slot invariants, crash-path guards,
   audio-thread allocation scans, feedback clamps, formatting, build metadata and
   balanced source structure.

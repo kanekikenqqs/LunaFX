@@ -2,14 +2,14 @@
 #include "PluginProcessor.h"
 #include "UiWidgets.h"
 
-constexpr int kDesignW = 1440;
-constexpr int kDesignH = 900;
-constexpr int kTopH    = 58;
-constexpr int kLeftW   = 716;
-constexpr int kRackX   = 724;
-constexpr int kRackW   = 350;
-constexpr int kCtxX    = 1082;
-constexpr int kCtxW    = 358;
+constexpr int kDesignW = 1600;
+constexpr int kDesignH = 1000;
+constexpr int kTopH    = 64;
+constexpr int kLeftW   = 800;
+constexpr int kRackX   = 808;
+constexpr int kRackW   = 392;
+constexpr int kCtxX    = 1208;
+constexpr int kCtxW    = 384;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  The eight-slot rack. Every row is one of the eight XY slots.

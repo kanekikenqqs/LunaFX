@@ -96,13 +96,18 @@ def function_body(text: str, signature: str) -> str:
 # ── exact eight-slot model ───────────────────────────────────────────────────
 check("XY header defines exactly 8 slots", re.search(r"kNumSlots\s*=\s*8\b", xy) is not None)
 check("XY header defines four slots per side", re.search(r"kSlotsPerSide\s*=\s*4\b", xy) is not None)
-check("XY mapping is radial Euclidean distance", all(t in xy for t in
-      ["std::sqrt (dx * dx + dy * dy)", "s * s * (3.f - 2.f * s)", "kProximityFalloff"]))
+check("XY mapping is a broad octagonal radial/angular field", all(t in xy for t in
+      ["kRadialGate", "kAngularSigmaRad", "kFieldOrder", "smoothstep01", "std::exp", "clampToField"]))
+check("XY mapping keeps the dry centre", "smoothstep01 (r / kRadialGate)" in xy)
 check("no legacy nine/sixteen-node identifiers remain", not re.search(r"\bn(?:[89]|1[0-5])e?\b",
       strip_cpp(xy) + strip_cpp(processor) + strip_cpp(widgets) + strip_cpp(editor)))
 check("processor drives eight slot choices", "params::slotChoiceId (s)" in processor
       and "s < params::kNumSlots" in processor)
 check("UI circle and rack use params::kNumSlots", "params::kNumSlots" in widgets and "params::kNumSlots" in editor)
+check("XY surface is an octagon with field clamping", "fieldPath" in widgets and "params::clampToField" in widgets)
+check("signal-flow menu was removed from the rack", "SIGNAL FLOW" not in editor)
+check("every rack row owns a per-tool mix knob", "rebuildMixKnob" in widgets and "mixKnob" in widgets)
+check("larger 1600x1000 layout", "kDesignW = 1600" in editor_h and "kDesignH = 1000" in editor_h)
 check("no sixteen-slot loops in UI/processor", not re.search(r"<\s*16\b", editor + widgets + processor))
 
 # ── parameter table and IDs ──────────────────────────────────────────────────

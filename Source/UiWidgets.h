@@ -178,6 +178,11 @@ public:
             g.drawRoundedRectangle (r, 6.f, on ? 1.4f : 1.f);
         }
     }
+
+    Font getTextButtonFont (TextButton&, int buttonHeight) override
+    {
+        return Font (jlimit (11.f, 15.f, (float) buttonHeight * 0.48f)).boldened();
+    }
 };
 
 // ----------------------------------------------------------------------------- helpers
@@ -271,7 +276,7 @@ public:
 
             value.setJustificationType (Justification::centred);
             value.setColour (Label::textColourId, col.brighter (isDay() ? 0.f : 0.15f));
-            value.setFont (Font (compact ? 9.f : 12.f).boldened());
+            value.setFont (Font (compact ? 11.f : 13.5f).boldened());
             value.setEditable (false, true, false);
             value.setTooltip ("Double-click to type a value");
             value.onTextChange = [this] { applyEditedText(); };
@@ -311,8 +316,8 @@ public:
     void resized() override
     {
         auto b = getLocalBounds().reduced (compact ? 3 : 6);
-        const int capH = compact ? 10 : 16;
-        const int valH = compact ? 11 : 17;
+        const int capH = compact ? 11 : 18;
+        const int valH = compact ? 12 : 20;
         if (combo)
         {
             b.removeFromTop (capH);
@@ -343,16 +348,16 @@ public:
         if (param == nullptr)
         {
             g.setColour (warning());
-            g.setFont (Font (10.f).boldened());
+            g.setFont (Font (11.f).boldened());
             g.drawText ("UNAVAILABLE", getLocalBounds().reduced (4), Justification::centred, false);
             return;
         }
         g.setColour (col.withAlpha (0.65f));
         g.fillRoundedRectangle (b.getX() + 6.f, b.getY(), 22.f, 2.f, 1.f);
 
-        const int capH = compact ? 10 : 16;
+        const int capH = compact ? 11 : 18;
         g.setColour (muted());
-        g.setFont (Font (compact ? 8.f : 10.f).boldened());
+        g.setFont (Font (compact ? 9.f : 11.5f).boldened());
         g.drawText (captionText.toUpperCase(),
                     getLocalBounds().reduced (compact ? 3 : 6).removeFromTop (capH),
                     Justification::centred, false);
@@ -489,29 +494,10 @@ public:
         addAndMakeVisible (power);
         addAndMakeVisible (nameHit);
         addAndMakeVisible (assignBtn);
-        addAndMakeVisible (maxSlider);
 
         assignBtn.setColour (TextButton::buttonColourId, Colours::transparentBlack);
         assignBtn.setColour (TextButton::textColourOffId, muted());
         assignBtn.setMouseCursor (MouseCursor::PointingHandCursor);
-
-        maxSlider.setSliderStyle (Slider::LinearHorizontal);
-        maxSlider.setTextBoxStyle (Slider::NoTextBox, false, 0, 0);
-        maxSlider.setColour (Slider::trackColourId, col);
-        maxSlider.setDoubleClickReturnValue (true, 0.55);
-        maxSlider.setTooltip ("Maximum mix for this slot. XY proximity scales this value; it is not the live mix.");
-        maxSlider.onValueChange = [this]
-        {
-            if (updating) return;
-            const int fx = proc.slotFx (slot);
-            if (fx < 0) return;
-            if (auto* p = proc.apvts.getParameter (params::amtId (fx)))
-            {
-                p->beginChangeGesture();
-                p->setValueNotifyingHost (p->convertTo0to1 ((float) maxSlider.getValue()));
-                p->endChangeGesture();
-            }
-        };
 
         power.onClick = [this]
         {
@@ -541,29 +527,27 @@ public:
         const float live = proc.slotLiveMix (slot);
         const float maxMix = fx >= 0 ? rawValue (params::amtId (fx)) : 0.f;
 
-        updating = true;
-        if (! maxSlider.isMouseButtonDown()) maxSlider.setValue (maxMix, dontSendNotification);
         power.setToggleState (enabled, dontSendNotification);
-        updating = false;
 
         const Colour wanted = fx >= 0 ? fxColour (fx) : lineBright();
-        if (wanted != col)
+        if (wanted != col || fx != shownFx)
         {
             col = wanted;
             power.setAccent (col);
-            maxSlider.setColour (Slider::trackColourId, col);
+            if (mixKnob != nullptr) mixKnob->setAccent (col);
             repaint();
         }
         if (fx != shownFx)
         {
             shownFx = fx;
-            const Colour c = fx >= 0 ? fxColour (fx) : lineBright();
-            col = c;
-            power.setAccent (c);
-            maxSlider.setColour (Slider::trackColourId, c);
-            maxSlider.setEnabled (fx >= 0);
             assignBtn.setButtonText (fx >= 0 ? "CHANGE" : "ASSIGN");
+            rebuildMixKnob (fx);
             repaint();
+        }
+        if (mixKnob != nullptr)
+        {
+            mixKnob->tick();
+            mixKnob->setEnabled (true); // independent even while the slot is disabled
         }
 
         if (std::abs (live - lastLive) > 0.0015f || std::abs (maxMix - lastMax) > 0.0015f
@@ -587,72 +571,71 @@ public:
         auto r = getLocalBounds().toFloat().reduced (1.f, 1.f);
         g.setColour (selected ? c.withAlpha (0.12f + 0.10f * presetFlash)
                               : (assigned ? panel().withAlpha (0.72f) : panel().withAlpha (0.34f)));
-        g.fillRoundedRectangle (r, 5.f);
+        g.fillRoundedRectangle (r, 6.f);
         g.setColour (selected ? c : (presetFlash > 0.f && assigned ? c.withAlpha (0.35f + 0.5f * presetFlash) : line()));
-        g.drawRoundedRectangle (r, 5.f, selected ? 1.8f : 1.f);
+        g.drawRoundedRectangle (r, 6.f, selected ? 2.f : 1.f);
 
         if (selected)
         {
             g.setColour (c);
-            g.fillRoundedRectangle (r.getX(), r.getY() + 8.f, 2.5f, r.getHeight() - 16.f, 1.2f);
+            g.fillRoundedRectangle (r.getX(), r.getY() + 9.f, 3.f, r.getHeight() - 18.f, 1.5f);
         }
 
-        // name + category
+        // name, category and live readout
         const String name = assigned ? String (djx::kFxNames[fx]) : String ("Unassigned");
         g.setColour (assigned ? (enabled ? text() : muted()) : muted());
-        g.setFont (Font (12.f).boldened());
-        g.drawFittedText (name, Rectangle<int> (36, 4, 150, 20), Justification::centredLeft, 1, 0.76f);
-        g.setColour (assigned ? c.withAlpha (alpha * 0.9f) : muted().withAlpha (0.6f));
-        g.setFont (Font (8.f).boldened());
+        g.setFont (Font (14.5f).boldened());
+        g.drawFittedText (name, Rectangle<int> (118, 4, 154, 24), Justification::centredLeft, 1, 0.74f);
+        g.setColour (assigned ? c.withAlpha (alpha * 0.95f) : muted().withAlpha (0.65f));
+        g.setFont (Font (9.5f).boldened());
         g.drawText (assigned ? categoryLabel (djx::kFxCategory[fx]).toUpperCase() : String ("LIBRARY FREE"),
-                    Rectangle<int> (36, 23, 150, 12), Justification::centredLeft, false);
+                    Rectangle<int> (118, 29, 154, 14), Justification::centredLeft, false);
+
+        g.setColour (muted().withAlpha (0.95f));
+        g.setFont (Font (9.5f).boldened());
+        g.drawText ("LIVE " + String (juce::roundToInt (live * 100.f)) + "%",
+                    Rectangle<int> (118, 54, 120, 14), Justification::centredLeft, false);
+        g.setColour (text().withAlpha (0.6f));
+        g.setFont (Font (9.f).boldened());
+        g.drawText ("DRY/WET " + String (juce::roundToInt (maxMix * 100.f)) + "%",
+                    Rectangle<int> (236, 54, 96, 14), Justification::centredRight, false);
 
         // badge
-        auto badge = Rectangle<float> (192.f, 7.f, 38.f, 18.f);
+        auto badge = Rectangle<float> (272.f, 10.f, 40.f, 22.f);
         g.setColour (assigned ? c.withAlpha (0.10f) : line().withAlpha (0.45f));
         g.fillRoundedRectangle (badge, 4.f);
         g.setColour (assigned ? c.withAlpha (0.7f) : line());
         g.drawRoundedRectangle (badge, 4.f, 1.f);
         g.setColour (assigned ? c : muted());
-        g.setFont (Font (8.f).boldened());
+        g.setFont (Font (9.f).boldened());
         g.drawText ("XY " + String (slot + 1), badge, Justification::centred);
 
-        // values above the two meters
-        g.setFont (Font (8.f).boldened());
-        g.setColour (muted().withAlpha (0.9f));
-        g.drawText ("MAX", 36, 30, 30, 11, Justification::centredLeft, false);
-        g.drawText (String (juce::roundToInt (maxMix * 100.f)) + "%", 66, 30, 108, 11,
-                    Justification::centredRight, false);
-        g.drawText ("LIVE", 186, 30, 30, 11, Justification::centredLeft, false);
-        g.drawText (String (juce::roundToInt (live * 100.f)) + "%", 216, 30, 108, 11,
-                    Justification::centredRight, false);
-
         // live meter
-        auto meter = Rectangle<float> (186.f, 44.f, 140.f, 8.f);
+        auto meter = Rectangle<float> (118.f, 72.f, 262.f, 10.f);
         g.setColour (line());
-        g.fillRoundedRectangle (meter, 4.f);
+        g.fillRoundedRectangle (meter, 5.f);
         if (live > 0.0005f)
         {
             g.setColour (c.withAlpha (enabled ? 0.95f : 0.4f));
-            g.fillRoundedRectangle (meter.withWidth (jmax (2.f, meter.getWidth() * jlimit (0.f, 1.f, live))), 4.f);
+            g.fillRoundedRectangle (meter.withWidth (jmax (3.f, meter.getWidth() * jlimit (0.f, 1.f, live))), 5.f);
         }
         const float mx = meter.getX() + meter.getWidth() * jlimit (0.f, 1.f, maxMix);
-        g.setColour (text().withAlpha (0.65f));
-        g.fillRect (mx - 0.5f, meter.getY() - 1.f, 1.f, meter.getHeight() + 2.f);
+        g.setColour (text().withAlpha (0.75f));
+        g.fillRect (mx - 1.f, meter.getY() - 2.f, 2.f, meter.getHeight() + 4.f);
 
         if (! enabled && assigned)
         {
-            g.setColour (bgTop().withAlpha (0.30f));
-            g.fillRoundedRectangle (r, 5.f);
+            g.setColour (bgTop().withAlpha (0.22f));
+            g.fillRoundedRectangle (r, 6.f);
         }
     }
 
     void resized() override
     {
-        power.setBounds (10, 19, 20, 20);
-        nameHit.setBounds (34, 4, 152, 36);
-        assignBtn.setBounds (238, 7, 68, 20);
-        maxSlider.setBounds (36, 43, 140, 10);
+        power.setBounds (10, 35, 20, 20);
+        nameHit.setBounds (116, 4, 156, 44);
+        assignBtn.setBounds (316, 10, 64, 24);
+        if (mixKnob != nullptr) mixKnob->setBounds (32, 4, 80, 80);
     }
 
     void mouseDown (const MouseEvent&) override
@@ -665,6 +648,17 @@ private:
     {
         if (auto* p = proc.apvts.getRawParameterValue (id)) return p->load();
         return 0.f;
+    }
+
+    void rebuildMixKnob (int fx)
+    {
+        mixKnob.reset();
+        if (fx < 0) return;
+        mixKnob = std::make_unique<KnobCard> (proc.apvts, params::amtId (fx),
+                                              "Dry/Wet", fxColour (fx), true);
+        mixKnob->setTooltip ("Per-tool dry/wet ceiling. It is independent and editable even when the slot is disabled; XY proximity scales it.");
+        addAndMakeVisible (*mixKnob);
+        mixKnob->setBounds (32, 4, 80, 80);
     }
 
     void showAssignMenu()
@@ -725,13 +719,12 @@ private:
     float lastLive = -1.f, lastMax = -1.f;
     bool lastEnabled = false;
     bool selected = false;
-    bool updating = false;
     float presetFlash = 0.f;
 
     PowerButton power;
     HitButton nameHit;
     TextButton assignBtn { "ASSIGN" };
-    Slider maxSlider;
+    std::unique_ptr<KnobCard> mixKnob;
 };
 
 // ----------------------------------------------------------------------------- XY circle
@@ -743,8 +736,8 @@ public:
     {
         setMouseCursor (MouseCursor::CrosshairCursor);
         setWantsKeyboardFocus (true);
-        setName ("XY performance circle");
-        setTooltip ("Drag to perform. Distance to a node sets its live mix. Click a node to edit that slot.");
+        setName ("Octagonal XY performance field");
+        setTooltip ("Drag the puck inside the octagon. Three or four tools are always in the field; the closest vertex is strongest. Click a vertex to edit that slot.");
         px = p.apvts.getParameter ("padX");
         py = p.apvts.getParameter ("padY");
         pe = p.apvts.getParameter ("engage");
@@ -781,13 +774,14 @@ public:
         // the glow always eases instead of switching on.
         for (int i = 0; i < params::kNumSlots; ++i)
         {
-            const auto p = params::clampToDisk (px ? px->getValue() * 2.f - 1.f : 0.f,
-                                                py ? py->getValue() * 2.f - 1.f : 0.f);
+            const auto p = params::clampToField (px ? px->getValue() * 2.f - 1.f : 0.f,
+                                                 py ? py->getValue() * 2.f - 1.f : 0.f);
             const float target = params::slotProximity (p.x, p.y, i);
             const float k = target > disp[i] ? 0.35f : 0.16f;
             const float n = disp[i] + (target - disp[i]) * k;
             if (std::abs (n - disp[i]) > 0.0004f) { disp[i] = n; changed = true; }
         }
+        phase += dt * (0.25f + 0.7f * proc.uiEngage.load());
 
         if (springing)
         {
@@ -817,116 +811,168 @@ public:
         const auto c = d.getCentre();
         const float R = d.getWidth() * 0.5f;
         const bool byp = pBypass != nullptr && pBypass->getValue() > 0.5f;
+        const Path field = fieldPath();
 
-        // soft shadow and disc
-        g.setColour (Colours::black.withAlpha (0.45f));
-        g.fillEllipse (d.translated (0.f, 8.f));
-        g.setGradientFill (ColourGradient (isDay() ? Colour (0xfffaf7ef) : Colour (0xff1b202b), c.x, c.y - R,
-                                           isDay() ? Colour (0xffded8cb) : Colour (0xff080a10), c.x, c.y + R, false));
-        g.fillEllipse (d);
+        // soft shadow and octagonal field
+        g.setColour (Colours::black.withAlpha (0.5f));
+        g.fillPath (field, AffineTransform::translation (0.f, 9.f));
+        g.setGradientFill (ColourGradient (isDay() ? Colour (0xfffaf7ef) : Colour (0xff1a1f2b), c.x, c.y - R,
+                                           isDay() ? Colour (0xffded8cb) : Colour (0xff07090e), c.x, c.y + R, false));
+        g.fillPath (field);
+
+        const auto puck = puckPos();
 
         {
             Graphics::ScopedSaveState ss (g);
-            Path clip; clip.addEllipse (d);
-            g.reduceClipRegion (clip);
+            g.reduceClipRegion (field);
 
-            // lunar maria (vector, smooth - no pixel texture)
-            g.setColour ((isDay() ? Colours::white : Colours::white).withAlpha (isDay() ? 0.10f : 0.035f));
+            // soft maria inside the field
+            g.setColour (Colours::white.withAlpha (isDay() ? 0.08f : 0.022f));
             g.fillEllipse (c.x - R * 0.72f, c.y - R * 0.55f, R * 0.72f, R * 0.42f);
-            g.setColour (Colours::white.withAlpha (isDay() ? 0.06f : 0.025f));
             g.fillEllipse (c.x + R * 0.05f, c.y - R * 0.10f, R * 0.55f, R * 0.38f);
             g.fillEllipse (c.x - R * 0.15f, c.y + R * 0.42f, R * 0.48f, R * 0.27f);
 
-            // terminator shading
-            g.setGradientFill (ColourGradient (Colours::transparentBlack, c.x - R * 0.4f, c.y,
-                                               (isDay() ? Colours::black : Colours::black).withAlpha (isDay() ? 0.08f : 0.42f),
-                                               c.x + R, c.y + R * 0.25f, true));
-            g.fillEllipse (d);
+            // Broad overlapping influence zones. Every tool paints a 100-degree
+            // soft wedge from the centre to its vertex; the gradient is
+            // transparent at the centre, so the octagon centre stays dry.
+            for (int i = 0; i < params::kNumSlots; ++i)
+            {
+                const int fx = proc.slotFx (i);
+                if (! params::isVisibleFx (fx)) continue;
+                const bool on = rawBool (params::slotEnableId (i)) && ! byp;
+                if (! on) continue;
+                const float w = disp[i];
+                if (w < 0.004f) continue;
+                const auto n = nodePos (i, c, R);
+                const float base = params::kSlotAngleDeg[i] * MathConstants<float>::pi / 180.f;
+                const float half = 0.92f;
+                Path wedge;
+                wedge.startNewSubPath (c.x, c.y);
+                constexpr int steps = 14;
+                for (int k = 0; k <= steps; ++k)
+                {
+                    const float a = base - half + 2.f * half * (float) k / (float) steps;
+                    wedge.lineTo (c.x + std::cos (a) * R * 1.08f,
+                                  c.y - std::sin (a) * R * 1.08f);
+                }
+                wedge.closeSubPath();
+
+                const Colour col = fxColour (fx);
+                g.setGradientFill (ColourGradient (Colours::transparentBlack, c.x, c.y,
+                                                   col.withAlpha (0.018f + 0.14f * w), n.x, n.y, false));
+                g.fillPath (wedge);
+
+                // A second, tighter halo gives the vertex its "moonlight" bloom.
+                g.setGradientFill (ColourGradient (col.withAlpha (0.18f * w), n.x, n.y,
+                                                   Colours::transparentBlack, n.x + R * 0.52f, n.y, true));
+                g.fillEllipse (n.x - R * 0.52f, n.y - R * 0.52f, R * 1.04f, R * 1.04f);
+            }
+
+            // centre vignette: keeps the physical dry centre visually obvious
+            g.setGradientFill (ColourGradient (bgTop().withAlpha (0.48f), c.x, c.y,
+                                               Colours::transparentBlack, c.x + R * 0.42f, c.y, true));
+            g.fillEllipse (c.x - R * 0.42f, c.y - R * 0.42f, R * 0.84f, R * 0.84f);
+
+            // faint octagon grid / orbits
+            g.setColour (line().withAlpha (0.5f));
+            Path inner; 
+            for (int i = 0; i < params::kNumSlots; ++i)
+            {
+                const auto a = params::slotPosition (params::kFieldOrder[i]);
+                const float x = c.x + a.x * R * 0.48f, y = c.y - a.y * R * 0.48f;
+                if (i == 0) inner.startNewSubPath (x, y); else inner.lineTo (x, y);
+            }
+            inner.closeSubPath();
+            g.strokePath (inner, PathStrokeType (1.f));
+            g.drawEllipse (c.x - R * 0.70f, c.y - R * 0.70f, R * 1.40f, R * 1.40f, 0.8f);
         }
 
+        // octagon rim, outer echo, corner ticks
+        const Path outer = fieldPath (1.045f);
+        g.setColour (line().withAlpha (0.45f));
+        g.strokePath (outer, PathStrokeType (1.f));
         g.setColour (lineBright());
-        g.drawEllipse (d.reduced (1.f), 1.6f);
-        g.setColour (line());
-        g.drawEllipse (d.reduced (9.f), 1.f);
+        g.strokePath (field, PathStrokeType (2.f, PathStrokeType::curved, PathStrokeType::rounded));
 
-        // rim ticks
-        for (int i = 0; i < 72; ++i)
+        for (int i = 0; i < params::kNumSlots; ++i)
         {
-            const float a = (float) i * MathConstants<float>::twoPi / 72.f - MathConstants<float>::halfPi;
-            const bool major = (i % 9) == 0;
-            const float inner = R - (major ? 18.f : 11.f);
-            const float outer = R - 7.f;
-            g.setColour ((major ? lineBright() : line()).withAlpha (major ? 0.9f : 0.55f));
-            g.drawLine (c.x + std::cos (a) * inner, c.y + std::sin (a) * inner,
-                        c.x + std::cos (a) * outer, c.y + std::sin (a) * outer, major ? 1.5f : 1.f);
+            const auto n = nodePos (i, c, R);
+            const float dx = n.x - c.x, dy = n.y - c.y;
+            const float len = std::max (1.f, std::sqrt (dx * dx + dy * dy));
+            g.setColour (silver().withAlpha (0.36f));
+            g.drawLine (n.x - dx / len * 9.f, n.y - dy / len * 9.f,
+                        n.x - dx / len * 26.f, n.y - dy / len * 26.f, 1.f);
         }
 
-        // faint orbit rings
-        g.setColour (line().withAlpha (0.5f));
-        g.drawEllipse (c.x - R * 0.55f, c.y - R * 0.55f, R * 1.10f, R * 1.10f, 1.f);
-        g.drawEllipse (c.x - R * 0.20f, c.y - R * 0.20f, R * 0.40f, R * 0.40f, 0.8f);
-
-        const auto puck = puckPos();
-        const bool enabled = ! byp;
-
-        // connections first
+        // connection lines
         for (int i = 0; i < params::kNumSlots; ++i)
         {
             const int fx = proc.slotFx (i);
             if (! params::isVisibleFx (fx)) continue;
-            const bool on = rawBool (params::slotEnableId (i));
+            const bool on = rawBool (params::slotEnableId (i)) && ! byp;
             const auto n = nodePos (i, c, R);
             const float w = disp[i];
             if (on && w > 0.02f)
             {
-                g.setColour (fxColour (fx).withAlpha (0.05f + 0.30f * w));
-                g.drawLine (puck.x, puck.y, n.x, n.y, 0.8f + 1.8f * w);
+                g.setColour (fxColour (fx).withAlpha (0.06f + 0.38f * w));
+                g.drawLine (puck.x, puck.y, n.x, n.y, 0.9f + 2.4f * w);
+                const float t = 0.25f + 0.55f * (0.5f + 0.5f * std::sin (phase * 2.7f + (float) i));
+                g.setColour (fxColour (fx).withAlpha (0.22f + 0.5f * w));
+                g.fillEllipse (puck.x + (n.x - puck.x) * t - 2.f,
+                               puck.y + (n.y - puck.y) * t - 2.f, 4.f, 4.f);
             }
         }
 
         for (int i = 0; i < params::kNumSlots; ++i)
-            drawNode (g, i, c, R, byp, enabled);
+            drawNode (g, i, c, R, byp, ! byp);
 
-        // puck
-        const float pr = 15.f;
-        if (enabled)
+        // puck aura follows the strongest vertex colour
+        int strongest = -1;
+        float strongestW = 0.f;
+        for (int i = 0; i < params::kNumSlots; ++i)
+            if (disp[i] > strongestW) { strongestW = disp[i]; strongest = i; }
+        const Colour aura = (strongest >= 0 && params::isVisibleFx (proc.slotFx (strongest)))
+                            ? fxColour (proc.slotFx (strongest)) : accent();
+
+        const float pr = 17.f;
+        if (! byp)
         {
-            g.setGradientFill (ColourGradient (accent().withAlpha (0.22f + 0.12f * proc.uiEngage.load()), puck.x, puck.y,
-                                               Colours::transparentBlack, puck.x + 55.f, puck.y, true));
-            g.fillEllipse (puck.x - 55.f, puck.y - 55.f, 110.f, 110.f);
+            g.setGradientFill (ColourGradient (aura.withAlpha (0.22f + 0.20f * strongestW + 0.10f * proc.uiEngage.load()),
+                                               puck.x, puck.y, Colours::transparentBlack, puck.x + 64.f, puck.y, true));
+            g.fillEllipse (puck.x - 64.f, puck.y - 64.f, 128.f, 128.f);
         }
-        g.setColour (Colours::black.withAlpha (0.55f));
-        g.fillEllipse (puck.x - pr, puck.y - pr + 3.f, pr * 2.f, pr * 2.f);
+        g.setColour (Colours::black.withAlpha (0.6f));
+        g.fillEllipse (puck.x - pr, puck.y - pr + 4.f, pr * 2.f, pr * 2.f);
         g.setColour (isDay() ? Colour (0xffeee8dc) : Colour (0xff0b0d12));
         g.fillEllipse (puck.x - pr, puck.y - pr, pr * 2.f, pr * 2.f);
-        g.setColour (dragging ? accent() : text());
-        g.drawEllipse (puck.x - pr, puck.y - pr, pr * 2.f, pr * 2.f, 2.2f);
+        g.setColour (dragging ? aura : text());
+        g.drawEllipse (puck.x - pr, puck.y - pr, pr * 2.f, pr * 2.f, 2.6f);
         g.setColour (text());
-        g.fillEllipse (puck.x - 3.f, puck.y - 3.f, 6.f, 6.f);
+        g.fillEllipse (puck.x - 3.5f, puck.y - 3.5f, 7.f, 7.f);
         g.setColour (muted());
-        g.setFont (Font (9.f).boldened());
-        g.drawText ("XY", (int) (puck.x - 12.f), (int) (puck.y + 19.f), 24, 12, Justification::centred, false);
+        g.setFont (Font (10.f).boldened());
+        g.drawText ("XY", (int) (puck.x - 14.f), (int) (puck.y + 21.f), 28, 13, Justification::centred, false);
 
         if (byp)
         {
             g.setColour (warning());
-            g.setFont (Font (20.f).boldened());
-            g.drawText ("BYPASSED", d.withSizeKeepingCentre (280.f, 30.f).translated (0.f, R * 0.58f), Justification::centred);
+            g.setFont (Font (22.f).boldened());
+            g.drawText ("BYPASSED", d.withSizeKeepingCentre (320.f, 34.f).translated (0.f, R * 0.56f), Justification::centred);
         }
 
         // legend
-        g.setColour (muted().withAlpha (0.85f));
-        g.setFont (Font (9.f).boldened());
-        g.drawText ("GLOW = LIVE PROXIMITY", (int) d.getX(), (int) getHeight() - 20, (int) d.getWidth() / 2, 14,
+        g.setColour (muted().withAlpha (0.9f));
+        g.setFont (Font (10.f).boldened());
+        g.drawText ("COLOUR ZONES = LIVE PROXIMITY", (int) d.getX(), (int) getHeight() - 22, (int) d.getWidth() / 2, 16,
                     Justification::centredLeft, false);
-        g.setColour (silver().withAlpha (0.85f));
-        g.drawText ("SILVER RING = PRESET ASSIGNED", (int) d.getCentreX(), (int) getHeight() - 20,
-                    (int) d.getWidth() / 2, 14, Justification::centredRight, false);
+        g.setColour (silver().withAlpha (0.9f));
+        g.drawText ("SILVER RING = PRESET", (int) d.getCentreX(), (int) getHeight() - 22,
+                    (int) d.getWidth() / 2, 16, Justification::centredRight, false);
 
         if (hasKeyboardFocus (true))
         {
             g.setColour (accent().withAlpha (0.55f));
-            g.drawEllipse (d.reduced (-4.f), 1.2f);
+            g.strokePath (field, PathStrokeType (1.4f));
         }
     }
 
@@ -1019,7 +1065,7 @@ public:
         else if (key == KeyPress (KeyPress::downKey)) y -= step;
         else if (key == KeyPress (KeyPress::homeKey)) { x = 0.5f; y = 0.5f; }
         else return false;
-        const auto p = params::clampToDisk (x * 2.f - 1.f, y * 2.f - 1.f);
+        const auto p = params::clampToField (x * 2.f - 1.f, y * 2.f - 1.f);
         px->beginChangeGesture(); py->beginChangeGesture();
         px->setValueNotifyingHost (0.5f + p.x * 0.5f);
         py->setValueNotifyingHost (0.5f + p.y * 0.5f);
@@ -1032,6 +1078,23 @@ public:
     void focusLost (FocusChangeType) override { repaint(); }
 
 private:
+    Path fieldPath (float scale = 1.f) const
+    {
+        auto d = disc();
+        const auto c = d.getCentre();
+        const float R = d.getWidth() * 0.5f;
+        Path p;
+        for (int i = 0; i < params::kNumSlots; ++i)
+        {
+            const auto a = params::slotPosition (params::kFieldOrder[i]);
+            const float x = c.x + a.x * R * scale;
+            const float y = c.y - a.y * R * scale;
+            if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
+        }
+        p.closeSubPath();
+        return p;
+    }
+
     Point<float> nodePos (int slot, Point<float> c, float R) const
     {
         const auto p = params::slotPosition (slot);
@@ -1044,7 +1107,8 @@ private:
         const float R = d.getWidth() * 0.5f;
         const float x = px != nullptr ? px->getValue() : 0.5f;
         const float y = py != nullptr ? py->getValue() : 0.5f;
-        return { d.getCentreX() + (x - 0.5f) * 2.f * R, d.getCentreY() - (y - 0.5f) * 2.f * R };
+        const auto p = params::clampToField (x * 2.f - 1.f, y * 2.f - 1.f);
+        return { d.getCentreX() + p.x * R, d.getCentreY() - p.y * R };
     }
 
     void setFromMouse (Point<float> pos)
@@ -1053,7 +1117,7 @@ private:
         const float R = d.getWidth() * 0.5f;
         const float dx = (pos.x - d.getCentreX()) / R;
         const float dy = (d.getCentreY() - pos.y) / R;
-        const auto p = params::clampToDisk (dx, dy);
+        const auto p = params::clampToField (dx, dy);
         if (px != nullptr) px->setValueNotifyingHost (0.5f + p.x * 0.5f);
         if (py != nullptr) py->setValueNotifyingHost (0.5f + p.y * 0.5f);
         repaint();
@@ -1080,77 +1144,85 @@ private:
         const float w = assigned ? disp[slot] : 0.f;
         const Colour col = assigned ? fxColour (fx) : lineBright();
         const bool selected = slot == selectedSlot;
-        const float nodeR = 9.f;
+        const float nodeR = assigned ? 11.f : 8.f;
 
-        if (on && w > 0.01f)
+        if (on && w > 0.006f)
         {
             g.setGradientFill (ColourGradient (col.withAlpha (0.34f * w), n.x, n.y,
-                                               Colours::transparentBlack, n.x + 34.f, n.y + 34.f, true));
-            g.fillEllipse (n.x - 34.f, n.y - 34.f, 68.f, 68.f);
+                                               Colours::transparentBlack, n.x + 44.f, n.y + 44.f, true));
+            g.fillEllipse (n.x - 44.f, n.y - 44.f, 88.f, 88.f);
         }
 
         if (presetFlash > 0.f && on)
         {
             const float pulse = presetFlash * (0.55f + 0.45f * std::sin (presetFlash * 12.f));
-            g.setColour (silver().withAlpha (0.45f * pulse));
-            g.drawEllipse (n.x - nodeR - 7.f, n.y - nodeR - 7.f,
-                           (nodeR + 7.f) * 2.f, (nodeR + 7.f) * 2.f, 1.4f);
+            g.setColour (silver().withAlpha (0.55f * pulse));
+            g.drawEllipse (n.x - nodeR - 8.f, n.y - nodeR - 8.f,
+                           (nodeR + 8.f) * 2.f, (nodeR + 8.f) * 2.f, 1.8f);
         }
 
         // base disc
         g.setColour (isDay() ? Colour (0xffeee9df) : Colour (0xff0b0d12));
-        g.fillEllipse (n.x - nodeR - 3.f, n.y - nodeR - 3.f, (nodeR + 3.f) * 2.f, (nodeR + 3.f) * 2.f);
+        g.fillEllipse (n.x - nodeR - 4.f, n.y - nodeR - 4.f, (nodeR + 4.f) * 2.f, (nodeR + 4.f) * 2.f);
         g.setColour (on ? col.withAlpha (0.30f + 0.65f * w) : (assigned ? lineBright() : line()));
         g.fillEllipse (n.x - nodeR, n.y - nodeR, nodeR * 2.f, nodeR * 2.f);
         g.setColour (on ? col.brighter (0.2f) : line());
-        g.drawEllipse (n.x - nodeR, n.y - nodeR, nodeR * 2.f, nodeR * 2.f, 1.2f);
+        g.drawEllipse (n.x - nodeR, n.y - nodeR, nodeR * 2.f, nodeR * 2.f, 1.4f);
 
         // inner dot / disabled slash
         if (on)
         {
-            g.setColour (text().withAlpha (0.5f + 0.5f * w));
-            g.fillEllipse (n.x - 2.2f, n.y - 2.2f, 4.4f, 4.4f);
+            g.setColour (text().withAlpha (0.55f + 0.45f * w));
+            g.fillEllipse (n.x - 2.8f, n.y - 2.8f, 5.6f, 5.6f);
         }
         else if (assigned)
         {
-            g.setColour (muted().withAlpha (0.7f));
-            g.drawLine (n.x - 3.f, n.y + 3.f, n.x + 3.f, n.y - 3.f, 1.2f);
+            g.setColour (muted().withAlpha (0.75f));
+            g.drawLine (n.x - 4.f, n.y + 4.f, n.x + 4.f, n.y - 4.f, 1.4f);
         }
 
         if (selected)
         {
-            g.setColour (text().withAlpha (0.9f));
-            g.drawEllipse (n.x - nodeR - 5.f, n.y - nodeR - 5.f,
-                           (nodeR + 5.f) * 2.f, (nodeR + 5.f) * 2.f, 1.6f);
+            g.setColour (text().withAlpha (0.95f));
+            g.drawEllipse (n.x - nodeR - 6.f, n.y - nodeR - 6.f,
+                           (nodeR + 6.f) * 2.f, (nodeR + 6.f) * 2.f, 1.8f);
         }
         if (hoverSlot == slot)
         {
-            g.setColour (text().withAlpha (0.35f));
-            g.drawEllipse (n.x - nodeR - 9.f, n.y - nodeR - 9.f,
-                           (nodeR + 9.f) * 2.f, (nodeR + 9.f) * 2.f, 1.f);
+            g.setColour (text().withAlpha (0.4f));
+            g.drawEllipse (n.x - nodeR - 10.f, n.y - nodeR - 10.f,
+                           (nodeR + 10.f) * 2.f, (nodeR + 10.f) * 2.f, 1.2f);
         }
 
-        // label inside the rim, never clipped by the editor edge
+        // Labels sit outside the top/bottom vertices and inside the side vertices,
+        // keeping the centre and neighbouring names clear.
+        const float nameW = 120.f;
+        bool labelRight = false;
+        if (n.x < c.x - R * 0.45f)       labelRight = true;   // far left, label inside
+        else if (n.x > c.x + R * 0.45f)  labelRight = false;  // far right, label inside
+        else if (n.x < c.x)              labelRight = false;  // upper/lower left, outside
+        else                             labelRight = true;   // upper/lower right, outside
+
         Rectangle<int> box;
-        const float nameW = 104.f;
-        if (n.x >= c.x)
-            box = Rectangle<int> ((int) (n.x - 16.f - nameW), (int) (n.y - 8.f), (int) nameW, 17);
+        if (labelRight)
+            box = Rectangle<int> ((int) (n.x + 18.f), (int) (n.y - 10.f), (int) nameW, 20);
         else
-            box = Rectangle<int> ((int) (n.x + 16.f), (int) (n.y - 8.f), (int) nameW, 17);
+            box = Rectangle<int> ((int) (n.x - 18.f - nameW), (int) (n.y - 10.f), (int) nameW, 20);
+
         const String label = assigned ? String (djx::kFxNames[fx]) : String ("Empty");
         g.setColour (on ? text() : (assigned ? muted() : muted().withAlpha (0.65f)));
-        g.setFont (Font (10.f).boldened());
-        g.drawFittedText (label, box, n.x >= c.x ? Justification::centredRight : Justification::centredLeft,
-                          1, 0.72f);
+        g.setFont (Font (11.5f).boldened());
+        g.drawFittedText (label, box, labelRight ? Justification::centredLeft : Justification::centredRight,
+                          1, 0.70f);
 
         if (assigned)
         {
-            Rectangle<int> sub (box.getX(), box.getBottom() - 1, box.getWidth(), 12);
-            g.setColour (on ? col.withAlpha (0.75f) : muted().withAlpha (0.55f));
-            g.setFont (Font (8.f));
+            Rectangle<int> sub (box.getX(), box.getBottom() - 1, box.getWidth(), 14);
+            g.setColour (on ? col.withAlpha (0.9f) : muted().withAlpha (0.6f));
+            g.setFont (Font (9.f).boldened());
             g.drawText (on ? String (juce::roundToInt (w * 100.f)) + "% LIVE"
                            : String ("DISABLED"),
-                        sub, n.x >= c.x ? Justification::centredRight : Justification::centredLeft, false);
+                        sub, labelRight ? Justification::centredLeft : Justification::centredRight, false);
         }
     }
 
@@ -1187,6 +1259,7 @@ private:
     int hoverSlot = -1;
     bool dragging = false, springing = false, gestureOpen = false, touchEngaged = false, nodeSelecting = false;
     float presetFlash = 0.f;
+    float phase = 0.f;
     unsigned int lastPresetRevision = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LunarCircle)
@@ -1225,11 +1298,11 @@ public:
         g.setColour (e > 0.5f ? accent() : lineBright());
         g.drawEllipse (c, e > 0.5f ? 3.f : 1.6f);
         g.setColour (e > 0.5f ? text() : muted());
-        g.setFont (Font (13.f).boldened());
+        g.setFont (Font (15.f).boldened());
         g.drawText ("ACCENT", c, Justification::centred);
 
         g.setColour (muted());
-        g.setFont (Font (9.f).boldened());
+        g.setFont (Font (10.f).boldened());
         g.drawText (pm != nullptr && pm->getValue() > 0.5f ? "HOLD" : "LATCH",
                     getLocalBounds().removeFromBottom (18), Justification::centred);
     }
@@ -1293,7 +1366,7 @@ public:
         g.setColour (flash ? warning() : lineBright());
         g.drawRoundedRectangle (b, 6.f, 1.2f);
         g.setColour (flash ? bgTop() : text());
-        g.setFont (Font (11.f).boldened());
+        g.setFont (Font (12.f).boldened());
         g.drawText (flash ? "CLEARED" : "KILL", b, Justification::centred);
     }
     void mouseDown (const MouseEvent&) override
@@ -1348,7 +1421,7 @@ public:
         g.setColour (byp ? bgTop() : accent());
         g.strokePath (p, PathStrokeType (1.8f, PathStrokeType::curved, PathStrokeType::rounded));
         g.setColour (byp ? bgTop() : text());
-        g.setFont (Font (11.f).boldened());
+        g.setFont (Font (12.f).boldened());
         g.drawText (byp ? "BYPASSED" : "BYPASS", b.withTrimmedLeft (32.f), Justification::centredLeft);
     }
     void mouseDown (const MouseEvent&) override

@@ -20,8 +20,8 @@ package and Ableton compatibility is **not** claimed.
 The tests that could run in this environment are the Python checks:
 
 ```text
-python tests/test_xy_model.py       -> 19/19 PASS
-python tests/test_source_sanity.py  -> 60/60 PASS
+python tests/test_xy_model.py       -> 25/25 PASS
+python tests/test_source_sanity.py  -> 65/65 PASS
 ```
 
 The C++ DSP tests (`tests/test_engine.cpp`, `tests/test_engine_smoke.cpp`,
@@ -56,8 +56,9 @@ The CI workflow `.github/workflows/build-windows.yml` does the same on a
 
 ## First MSVC compilation attempt
 
-A subsequent GitHub Actions/Windows build was run against this source. It reached
-the plug-in translation units and reported four compile blockers, all now fixed:
+A subsequent GitHub Actions/Windows build was run against the previous source
+revision. It reached the plug-in translation units and reported four compile
+blockers, all now fixed:
 
 - `UiWidgets.h`: unqualified `text()` inside a `Button` subclass resolved to the
   private `Button::text` member. It is now `ui::text()`.
@@ -66,8 +67,9 @@ the plug-in translation units and reported four compile blockers, all now fixed:
 - Three `accent()` uses in the editor and the `ColourGradient` construction were
   consequences of that shadowing and now resolve to the palette function.
 
-The next build should be rerun. No native artifact from this source has been
-verified yet.
+After that log, the octagonal-field, per-tool knob, 1600×1000 layout and enlarged
+type changes were added. Those changes have **not yet been compiled**. The next
+build must be rerun. No native artifact from this source has been verified yet.
 
 ## Host checklist still required
 
