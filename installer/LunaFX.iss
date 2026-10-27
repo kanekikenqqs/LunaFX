@@ -1,6 +1,6 @@
 ; Inno Setup script -> LunaFX-Setup.exe
 #define AppName "Luna FX"
-#define AppVer  "1.2.1"
+#define AppVer  "1.3.0"
 #define Art     "..\build\LunaFX_artefacts\Release"
 
 [Setup]

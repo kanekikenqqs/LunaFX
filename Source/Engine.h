@@ -36,6 +36,8 @@ enum : int
     Chorus, Flanger, Phaser, Tremolo, Vibrato, LfoDeathy, LfoHauntedRadio,
     // Time
     Delay, Reverb, Shimmer,
+    // New vintage LFO instruments appended so every older index stays stable.
+    LfoTapeGhost, LfoLunarTremor,
     Count
 };
 }
@@ -43,15 +45,16 @@ constexpr int kNumFx = Fx::Count;
 
 inline constexpr const char* kFxNames[kNumFx] = {
     "Harmony", "Reserved", "Reserved", "Whammy", "Dive Bomb", "Detune",
-    "Fuzz", "Tape Distortion", "Ring Mod", "Filter", "Radio", "Auto Wah",
+    "Fuzz", "Tape Distortion", "Ring Mod", "LFO Filter", "Radio", "Auto Wah",
     "Stutter", "Reverse", "Tape Stop", "Freeze", "Scatter", "Granular",
     "Chorus", "Flanger", "Phaser", "Tremolo", "Vibrato",
     "LFO Deathy", "LFO Haunted Radio",
-    "Delay", "Reverb", "Shimmer" };
+    "Delay", "Reverb", "Shimmer",
+    "LFO Tape Ghost", "LFO Lunar Tremor" };
 
 // -1 hides the two internal legacy pitch slots while preserving project parameter indices.
 // category of visible effects: 0 pitch, 1 fx, 2 glitch, 3 mod, 5 time.
-inline constexpr int kFxCategory[kNumFx] = { 0,-1,-1,0,0,0, 1,1,1,1,1,1, 2,2,2,2,2,2, 3,3,3,3,3, 3,3, 5,5,5 };
+inline constexpr int kFxCategory[kNumFx] = { 0,-1,-1,0,0,0, 1,1,1,1,1,1, 2,2,2,2,2,2, 3,3,3,3,3, 3,3, 5,5,5, 3,3 };
 
 constexpr int kNumDivs = 9;
 inline constexpr float kDivBeats[kNumDivs] = { 2.f, 1.5f, 1.f, 0.75f, 0.5f, 1.f / 3.f, 0.25f, 1.f / 6.f, 0.125f };
@@ -66,40 +69,50 @@ struct Tempo
 
 struct Settings
 {
-    std::array<float, kNumFx> amt {};   // effective amounts 0..1 (manual + pad)
+    std::array<float, kNumFx> amt {};   // effective wet amounts 0..1 (slot max * proximity)
+    std::array<float, kNumFx> outLevel = [] { std::array<float, kNumFx> a {}; a.fill (1.f); return a; }();
     bool  engaged = false;
     float fadeMs = 8.f, inGain = 1.f, outGain = 1.f;
 
     // Pitch: the Harmony instrument blends one down-shifted and one up-shifted voice.
     float pitchWinMs = 50.f, harmDownSemis = -12.f, harmUpSemis = 12.f;
+    float harmDownFine = 0.f, harmUpFine = 0.f, harmDownLvl = 0.5f, harmUpLvl = 0.5f, harmSpread = 0.f;
     float whamSemis = -12.f, diveSemis = 24.f, diveTime = 1.2f, detCents = 18.f;
     int diveCurve = 1;
     // FX
-    float fuzzDrive = 0.6f, fuzzTone = 0.72f;
-    float tapeDrive = 0.45f, tapeTone = 0.62f, tapeWear = 0.18f, tapeBias = 0.f;
-    float ringFreq = 220.f;
-    int   filtMode = 0;
+    float fuzzDrive = 0.6f, fuzzTone = 0.72f, fuzzBias = 0.f, fuzzComp = 0.35f;
+    int   fuzzMode = 0;
+    float tapeDrive = 0.45f, tapeTone = 0.62f, tapeWear = 0.18f, tapeBias = 0.f, tapeComp = 0.4f;
+    float ringFreq = 220.f, ringSpread = 0.25f;
+    int   ringShape = 0;
+    int   filtMode = 0, filtShape = 0;
     float filtFreq = 800.f, filtRes = 0.5f, filtRate = 2.f, filtDepth = 0.5f, wahSens = 0.6f;
-    float radioLow = 650.f, radioHigh = 3200.f, radioDrive = 8.f;
+    int   radMode = 0;
+    float radioLow = 650.f, radioHigh = 3200.f, radioDrive = 8.f, radRes = 0.4f, radNoise = 0.08f;
     // glitch
     float glBeats = 0.25f, tsTime = 0.6f, frzMs = 150.f;
     // granular time manipulation
     float grainSizeMs = 120.f, grainDensity = 12.f, grainPitch = 1.f, grainJitter = 0.15f;
+    float grainPos = 0.5f, grainReverse = 0.1f, grainSpread = 0.5f, grainFb = 0.1f;
     // modulation
     float choRate = 0.6f, choDepth = 0.5f, flRate = 0.3f, flFb = 0.6f, phRate = 0.4f, phFb = 0.5f;
     float trBeats = 0.5f, trDepth = 1.f, vibRate = 5.f, vibDepth = 0.5f;
     // Vintage LFO filter instruments (former generator slots, now purely audio effects).
     float deathyRate = 0.22f, deathyDepth = 0.78f, deathyTone = 0.38f, deathyRes = 0.72f;
     float hauntRate = 0.11f, hauntDepth = 0.68f, hauntTone = 0.58f, hauntRes = 0.62f;
+    float ghostRate = 0.18f, ghostDepth = 0.72f, ghostTone = 0.48f, ghostRes = 0.62f;
+    float tremorRate = 4.5f, tremorDepth = 0.7f, tremorRes = 0.5f;
+    int   tremorShape = 1;
     // Time FX
-    bool  dlyFree = false;
+    int   dlyMode = 0;
+    bool  dlyFree = false, dlyFreeze = false;
     float dlyBeats = 0.75f, dlyMs = 350.f, dlyFb = 0.45f, dlyTone = 5000.f, dlyPing = 0.7f;
     float dlyWidth = 0.65f, dlySat = 0.15f, dlyMod = 0.15f, dlyDuck = 0.f;
-    int revRoom = 1;
+    int revRoom = 2;
     float revDecay = 3.5f, revDamp = 0.5f, revPreMs = 20.f, revSize = 1.f;
-    float revMod = 0.5f, revWidth = 0.5f;
+    float revMod = 0.5f, revWidth = 0.5f, revDiff = 0.65f, revEarly = 0.f;
     bool revFreeze = false;
-    float shDecay = 8.f, shFb = 0.5f, shSemis = 12.f;
+    float shDecay = 8.f, shFb = 0.5f, shSemis = 12.f, shLow = 0.f;
     float shTone = 7000.f, shWidth = 0.5f, shMod = 0.f;
 };
 
@@ -174,7 +187,8 @@ struct SVF
     void reset() { s1 = s2 = 0.f; }
 };
 
-// 8-line feedback delay network reverb with Hadamard mixing, modulated lines
+// 8-line feedback delay network reverb with Hadamard mixing, modulated lines,
+// a controllable diffusion stage and pre-delay early reflections.
 struct FdnReverb
 {
     static constexpr int N = 8;
@@ -189,6 +203,7 @@ struct FdnReverb
     float len[N] {}, baseLen[N] {}, maxLen[N] {}, lp[N] {}, gain[N] {}, ph[N] {}, inc[N] {};
     float dampC = 0.6f, preS = 0.f, inj = 0.5f;
     float modDepthSamples = 9.f, stereoWidth = 0.5f;
+    float earlyLvl = 0.35f, diffG = 0.6f;
     bool freezeMode = false;
     double sr = 48000.0;
 
@@ -218,14 +233,21 @@ struct FdnReverb
         for (int i = 0; i < N; ++i) { line[i].clear(); lp[i] = 0.f; }
     }
     void setParams (float decaySec, float damp, float preMs, int roomType = 1, float size = 1.f,
-                    float modulation = 0.5f, float width = 0.5f, bool freeze = false)
+                    float modulation = 0.5f, float width = 0.5f, bool freeze = false,
+                    float early = 0.35f, float diffusion = 0.65f)
     {
         freezeMode = freeze;
         modDepthSamples = 18.f * clampf (modulation, 0.f, 1.f); // 0.5 preserves the classic 9-sample motion
         stereoWidth = clampf (width, 0.f, 1.f);
-        static const float roomScale[7] = { 0.72f, 1.00f, 0.86f, 0.92f, 1.42f, 0.64f, 1.72f };
-        static const float roomDamp[7]  = { 0.08f, 0.00f, -0.12f, 0.04f, 0.18f, -0.18f, 0.25f };
-        const int rt = std::max (0, std::min (6, roomType));
+        earlyLvl = clampf (early, 0.f, 1.f);
+        diffG = 0.15f + 0.72f * clampf (diffusion, 0.f, 1.f);
+        // Ten spaces with genuinely different line lengths, damping, diffusion
+        // and early-reflection characters (the FDN topology itself is shared).
+        static const float roomScale[10] = { 0.58f, 0.76f, 1.00f, 0.92f, 1.52f, 0.80f, 0.62f, 1.02f, 1.30f, 1.72f };
+        static const float roomDamp[10]  = { 0.16f, 0.08f,  0.01f, 0.12f,  0.20f, -0.12f, -0.04f, 0.38f, -0.06f, 0.25f };
+        static const float roomEarly[10] = { 0.62f, 0.48f, 0.28f, 0.42f, 0.22f, 0.14f, 0.20f, 0.30f, 0.18f, 0.12f };
+        static const float roomDiff[10]  = { 0.48f, 0.62f, 0.72f, 0.74f, 0.82f, 0.95f, 0.34f, 0.70f, 0.88f, 0.92f };
+        const int rt = std::max (0, std::min (9, roomType));
         decaySec = std::max (0.1f, decaySec);
         const float scale = clampf (size, 0.5f, 1.8f) * roomScale[rt];
         float gm = 0.f;
@@ -238,12 +260,35 @@ struct FdnReverb
         gm /= (float) N;
         inj = freezeMode ? 0.018f : 1.6f * std::sqrt (std::max (0.02f, 1.f - gm * gm));
         dampC = freezeMode ? 0.995f : 1.f - 0.8f * clampf (damp + roomDamp[rt], 0.f, 1.f);
-        preS = clampf (preMs * 0.001f * (float) sr, 0.f, (float) (0.29 * sr));
+        dampC = clampf (dampC, 0.02f, 0.9995f);
+        preS = clampf (preMs * 0.001f * (float) sr, 0.f, (float) (0.24 * sr));
+        earlyLvl = clampf (earlyLvl * roomEarly[rt], 0.f, 1.f);
+        diffG = clampf (diffG * (0.6f + 0.4f * roomDiff[rt]), 0.05f, 0.95f);
+        for (auto& a : ap) a.g = diffG;
     }
     inline void process (float inL, float inR, float& oL, float& oR)
     {
         float x = 0.5f * (inL + inR);
         pre.push (x);
+
+        // Early reflections are read from the pre-delay line so they stay
+        // coherent with the chosen pre-delay and size.
+        float earlyL = 0.f, earlyR = 0.f;
+        if (earlyLvl > 0.0001f)
+        {
+            const float base = preS;
+            const float tapScale = (float) sr * 0.001f;
+            const float taps[4] = { base + 7.f * tapScale, base + 11.f * tapScale,
+                                    base + 17.f * tapScale, base + 23.f * tapScale };
+            for (int i = 0; i < 4; ++i)
+            {
+                const float d = clampf (taps[i], 1.f, (float) (pre.size() - 8));
+                const float e = pre.read ((double) d) * (0.9f - 0.15f * (float) i);
+                if (i == 0 || i == 3) earlyL += e;
+                if (i == 1 || i == 2) earlyR += e;
+            }
+        }
+
         x = pre.read ((double) preS + 1.0);
         for (auto& a : ap) x = a.run (x);
 
@@ -265,40 +310,101 @@ struct FdnReverb
         const float rawR = (lp[0] + lp[1] - lp[2] - lp[3] + lp[4] + lp[5] - lp[6] - lp[7]) * 0.45f;
         const float mid = 0.5f * (rawL + rawR);
         const float side = 0.5f * (rawL - rawR) * (0.3f + 1.4f * stereoWidth);
-        oL = mid + side; oR = mid - side;
+        oL = mid + side + earlyL * earlyLvl * 0.55f;
+        oR = mid - side + earlyR * earlyLvl * 0.55f;
     }
 };
 
 struct StereoDelay
 {
-    DelayLine l, r;
-    float lpL = 0, lpR = 0, hpL = 0, hpR = 0, dt = 0, modPhase = 0, duckEnv = 0.f;
-    void init (double sr) { l.init ((int) (sr * 3.0) + 16); r.init ((int) (sr * 3.0) + 16); clear(); }
-    void clear() { l.clear(); r.clear(); lpL = lpR = hpL = hpR = 0.f; dt = 0.f; modPhase = 0.f; duckEnv = 0.f; }
+    DelayLine l, r, ap1, ap2;
+    int apLen1 = 113, apLen2 = 197;
+    float lpL = 0, lpR = 0, hpL = 0, hpR = 0, dt = 0, modPhase = 0, wowPhase = 0, duckEnv = 0.f;
+    static inline float allpass (DelayLine& d, float x, int back, float g) noexcept
+    {
+        const float bd = d.at (back);
+        const float w = x + g * bd;
+        d.push (w);
+        return bd - g * w;
+    }
+    void init (double sr)
+    {
+        l.init ((int) (sr * 3.0) + 16); r.init ((int) (sr * 3.0) + 16);
+        ap1.init ((int) (sr * 0.02) + 16); ap2.init ((int) (sr * 0.02) + 16);
+        apLen1 = std::max (8, (int) (0.0023 * sr));
+        apLen2 = std::max (8, (int) (0.0041 * sr));
+        clear();
+    }
+    void clear()
+    {
+        l.clear(); r.clear(); ap1.clear(); ap2.clear();
+        lpL = lpR = hpL = hpR = 0.f; dt = 0.f; modPhase = 0.f; wowPhase = 0.f; duckEnv = 0.f;
+    }
     inline void run (float inL, float inR, float dtTarget, float fb, float toneC, float hpC,
                      float ping, float width, float saturation, float modulation, float ducking, float sampleRate,
-                     float& oL, float& oR)
+                     int mode, bool freeze, float& oL, float& oR)
     {
         if (dt < 1.f) dt = dtTarget;
         dt += (dtTarget - dt) * 0.0008f;
-        modPhase += 0.23f / std::max (8000.f, sampleRate);
+        const int m = std::max (0, std::min (6, mode));
+
+        float fbEff = clampf (fb, 0.f, 0.97f);
+        float satAmt = clampf (saturation, 0.f, 1.f);
+        float modAmt = clampf (modulation, 0.f, 1.f);
+        float pingAmt = clampf (ping, 0.f, 1.f);
+        float tone = clampf (toneC, 0.0001f, 0.99f);
+        float hp = clampf (hpC, 0.0001f, 0.99f);
+        float lfoRate = 0.23f / std::max (8000.f, sampleRate);
+        float wow = 0.f;
+
+        switch (m)
+        {
+            case 1: tone *= 0.55f; satAmt = clampf (satAmt + 0.28f, 0.f, 1.f);
+                    lfoRate *= 1.8f; modAmt = clampf (modAmt + 0.25f, 0.f, 1.f); break;   // Tape
+            case 2: tone *= 0.78f; satAmt = clampf (satAmt + 0.38f, 0.f, 1.f); hp *= 1.6f; break; // Analog
+            case 3: pingAmt = 1.f; break;                                                   // Ping-Pong
+            case 4: break;                                                                  // Diffused (feedback AP)
+            case 5: modAmt = clampf (modAmt * 1.8f + 0.2f, 0.f, 1.f); lfoRate *= 2.5f; break; // Modulated
+            case 6: break;                                                                  // Rhythm (second tap)
+            default: break;
+        }
+        if (freeze) { fbEff = 0.995f; inL = 0.f; inR = 0.f; }
+
+        wowPhase += 0.37f / std::max (8000.f, sampleRate);
+        if (wowPhase >= 1.f) wowPhase -= 1.f;
+        if (m == 1) wow = 0.0025f * std::sin (kTwoPi * wowPhase) + 0.0008f * std::sin (kTwoPi * wowPhase * 5.1f);
+        modPhase += lfoRate;
         if (modPhase >= 1.f) modPhase -= 1.f;
-        const float modSamples = clampf (modulation, 0.f, 1.f) * sampleRate * 0.0035f;
+        const float modSamples = modAmt * sampleRate * 0.0035f;
         const float maxD = (float) (l.size() - 8);
-        const float dl = l.read ((double) clampf (dt + modSamples * std::sin (kTwoPi * modPhase), 8.f, maxD));
-        const float dr = r.read ((double) clampf (dt + modSamples * std::sin (kTwoPi * (modPhase + 0.25f)), 8.f, maxD));
-        const float fL = lerpf (dl, dr, ping), fR = lerpf (dr, dl, ping);
-        lpL += toneC * (fL - lpL); lpR += toneC * (fR - lpR);
-        hpL += hpC * (lpL - hpL);  hpR += hpC * (lpR - hpR);
-        const float sat = 1.f + 5.f * clampf (saturation, 0.f, 1.f);
-        const float sL = std::tanh ((lpL - hpL) * sat) / std::sqrt (sat) * fb;
-        const float sR = std::tanh ((lpR - hpR) * sat) / std::sqrt (sat) * fb;
+        const float baseD = clampf (dt * (1.f + wow), 8.f, maxD);
+        const float dl = l.read ((double) clampf (baseD + modSamples * std::sin (kTwoPi * modPhase), 8.f, maxD));
+        const float dr = r.read ((double) clampf (baseD + modSamples * std::sin (kTwoPi * (modPhase + 0.25f)), 8.f, maxD));
+        const float fL = lerpf (dl, dr, pingAmt), fR = lerpf (dr, dl, pingAmt);
+        lpL += tone * (fL - lpL); lpR += tone * (fR - lpR);
+        hpL += hp * (lpL - hpL);  hpR += hp * (lpR - hpR);
+        const float sat = 1.f + 5.f * satAmt;
+        float sL = std::tanh ((lpL - hpL) * sat) / std::sqrt (sat) * fbEff;
+        float sR = std::tanh ((lpR - hpR) * sat) / std::sqrt (sat) * fbEff;
+        if (m == 4)
+        {
+            // Short all-passes smear the repeats without changing the delay time.
+            sL = allpass (ap1, sL, apLen1, 0.62f);
+            sR = allpass (ap2, sR, apLen2, 0.58f);
+        }
         const float mono = 0.5f * (inL + inR);
-        l.push (lerpf (inL, mono, ping) + sL);
-        r.push (lerpf (inR, 0.f, ping) + sR);
+        l.push (lerpf (inL, mono, pingAmt) + sL);
+        r.push (lerpf (inR, 0.f, pingAmt) + sR);
         const float mid = 0.5f * (dl + dr);
         const float side = 0.5f * (dl - dr) * (0.25f + 1.5f * clampf (width, 0.f, 1.f));
         oL = mid + side; oR = mid - side;
+        if (m == 6)
+        {
+            // A half-time secondary tap gives the rhythm mode a clear identity.
+            const float rl = l.read ((double) clampf (baseD * 0.5f, 8.f, maxD)) * 0.35f;
+            const float rr = r.read ((double) clampf (baseD * 0.5f, 8.f, maxD)) * 0.35f;
+            oL += rl; oR += rr;
+        }
         const float inputEnv = 0.5f * (std::fabs (inL) + std::fabs (inR));
         const float duckCoef = 1.f - std::exp (-1.f / ((inputEnv > duckEnv ? 0.012f : 0.18f) * std::max (8000.f, sampleRate)));
         duckEnv += (inputEnv - duckEnv) * duckCoef;
@@ -321,12 +427,12 @@ public:
         {
             stBuf[c].init ((int) (sr * 4.0));  rvBuf[c].init ((int) (sr * 8.0));
             scBuf[c].init ((int) (sr * 8.0));  tsBuf[c].init ((int) (sr * 4.0));
-            fzBuf[c].init ((int) (sr * 0.6));  grBuf[c].init ((int) (sr * 2.5));
+            fzBuf[c].init ((int) (sr * 0.6));  grBuf[c].init ((int) (sr * 4.0));
             stCap[c].assign ((size_t) stBuf[c].size(), 0.f);
             fzCap[c].assign ((size_t) fzBuf[c].size(), 0.f);
             choD[c].init ((int) (sr * 0.06)); flD[c].init ((int) (sr * 0.03)); vibD[c].init ((int) (sr * 0.03));
         }
-        dly.init (sr); rev.init (sr, 1.5f); shRev.init (sr, 1.8f); shPs.init (sr);
+        dly.init (sr); rev.init (sr, 1.5f); shRev.init (sr, 1.8f); shPs.init (sr); shPsLow.init (sr);
         hpG = std::tan (kPi * 450.f / (float) sr);
         lpG = std::tan (kPi * 3400.f / (float) sr);
         wahAtk = 1.f - std::exp (-1.f / (0.004f * (float) sr));
@@ -334,7 +440,9 @@ public:
         reset();
     }
 
-    void reset()
+    // Clears every delay line, granular voice and filter state without touching
+    // user parameters. Called by the Kill Switch and by bypass transitions.
+    void clearTails()
     {
         for (auto& row : ps) for (auto& p : row) p.clear();
         for (int c = 0; c < 2; ++c)
@@ -342,19 +450,32 @@ public:
             stBuf[c].clear(); rvBuf[c].clear(); scBuf[c].clear(); tsBuf[c].clear(); fzBuf[c].clear(); grBuf[c].clear();
             choD[c].clear(); flD[c].clear(); vibD[c].clear();
             fltSvf[c].reset(); radHp[c].reset(); radLp[c].reset(); wahSvf[c].reset();
-            deathySvf[c].reset(); hauntSvf[c].reset();
+            deathySvf[c].reset(); hauntSvf[c].reset(); ghostSvf[c].reset(); tremorSvf[c].reset();
             tapeMem[c] = tapeLp[c] = flFbS[c] = phFbS[c] = fuzzLp[c] = fuzzHp[c] = 0.f;
             for (auto& z : phZ[c]) z = 0.f;
-        }
-        dly.clear(); rev.clear(); shRev.clear(); shPs.clear();
-        am.fill (0.f); prevAct.fill (false); prevEngaged = false;
-        gEng = 0.f; inG = outG = 1.f;
+            std::fill (stCap[c].begin(), stCap[c].end(), 0.f);
+            std::fill (fzCap[c].begin(), fzCap[c].end(), 0.f);
+            grLast[c] = 0.f;        }
+        for (auto& g : grains) g.active = false;
+        grainAcc = 0.f;
+        dly.clear(); rev.clear(); shRev.clear(); shPs.clear(); shPsLow.clear();
+        prevAct.fill (false); prevEngaged = false;
         shFbS = shLp = shHp = 0.f; wahEnv = 0.f;
         stActive = tsActive = fzActive = diveAct = false;
-        stMix = tsMix = fzMix = 0.f; diveEnv = 0.f;
-        tapePhase = deathyPhase = hauntPhase = shPhase = 0.f;
-        grPhase[0] = 0.f; grPhase[1] = 0.5f; grOffset[0] = grOffset[1] = 0.f;
+        stMix = tsMix = fzMix = 0.f; diveEnv = 0.f; tsRate = 1.f; tsLag = 0.f;
+        tapePhase = deathyPhase = hauntPhase = ghostPhase = tremorPhase = shPhase = 0.f;
+        tremorSH = 0.f;
         rvIdx = scIdx = -1; whamR = 1.f; winS = 0.f;
+        rmPh = fltPh = choPh = flPh = phPh = vibPh = 0.f;
+        rmSH[0] = rmSH[1] = 0.f; fltSH = 0.f; radPh = 0.f;
+        stPos = rvPos = scPos = fzPos = 0;
+    }
+
+    void reset()
+    {
+        clearTails();
+        am.fill (0.f); og.fill (1.f);
+        gEng = 0.f; inG = outG = 1.f;
     }
 
     float amount (int i) const { return am[(size_t) i]; }
@@ -386,12 +507,13 @@ public:
         const float toneC = 1.f - std::exp (-kTwoPi * clampf (S.dlyTone, 200.f, 18000.f) / fsr);
         const float hpC   = 1.f - std::exp (-kTwoPi * 140.f / fsr);
         rev.setParams (S.revDecay, S.revDamp, S.revPreMs, S.revRoom, S.revSize,
-                       S.revMod, S.revWidth, S.revFreeze);
-        shRev.setParams (S.shDecay, 0.55f, 30.f, 4, 1.15f, S.shMod, S.shWidth, false);
+                       S.revMod, S.revWidth, S.revFreeze, S.revEarly, S.revDiff);
+        shRev.setParams (S.shDecay, 0.55f, 30.f, 4, 1.15f, S.shMod, S.shWidth, false, 0.15f, 0.8f);
         const float shWin = 0.05f * fsr;
         const float shLpC = 1.f - std::exp (-kTwoPi * clampf (S.shTone, 1200.f, 16000.f) / fsr);
         const float shFb = clampf (S.shFb, 0.f, 0.85f) * 0.8f;
         const float shHpC = 1.f - std::exp (-kTwoPi * 220.f / fsr);
+        const float shLowMix = clampf (S.shLow, 0.f, 1.f);
 
         // ---- trigger edges (evaluated once per block)
         bool act[kNumFx];
@@ -439,7 +561,11 @@ public:
         // ---- sample loop
         for (int k = 0; k < n; ++k)
         {
-            for (int i = 0; i < kNumFx; ++i) am[(size_t) i] += (S.amt[(size_t) i] - am[(size_t) i]) * amtC;
+            for (int i = 0; i < kNumFx; ++i)
+            {
+                am[(size_t) i] += (S.amt[(size_t) i] - am[(size_t) i]) * amtC;
+                og[(size_t) i] += (clampf (S.outLevel[(size_t) i], 0.f, 4.f) - og[(size_t) i]) * gC;
+            }
             gEng += ((S.engaged ? 1.f : 0.f) - gEng) * engC;
             inG  += (S.inGain  - inG)  * gC;
             outG += (S.outGain - outG) * gC;
@@ -463,7 +589,8 @@ public:
             // time based sends (outputs are NOT gated => trails)
             float dL, dR, rL, rR, sL, sR;
             dly.run (send[0], send[1], dlyTarget, clampf (S.dlyFb, 0.f, 0.97f), toneC, hpC,
-                    clampf (S.dlyPing, 0.f, 1.f), S.dlyWidth, S.dlySat, S.dlyMod, S.dlyDuck, fsr, dL, dR);
+                    clampf (S.dlyPing, 0.f, 1.f), S.dlyWidth, S.dlySat, S.dlyMod, S.dlyDuck, fsr,
+                    S.dlyMode, S.dlyFreeze, dL, dR);
             rev.process (send[0], send[1], rL, rR);
 
             const float shIn = 0.5f * (send[0] + send[1]);
@@ -471,15 +598,25 @@ public:
             const float shMid = 0.5f * (sL + sR);
             const float shSide = 0.5f * (sL - sR) * (0.3f + 1.4f * clampf (S.shWidth, 0.f, 1.f));
             sL = shMid + shSide; sR = shMid - shSide;
-            shPs.push (0.5f * (sL + sR));
+            const float shMono = 0.5f * (sL + sR);
+            shPs.push (shMono); shPsLow.push (shMono);
             shPhase += (0.08f + 0.22f * clampf (S.shMod, 0.f, 1.f)) / fsr;
             if (shPhase >= 1.f) shPhase -= 1.f;
-            const float shRatio = semiToRatio (S.shSemis + std::sin (kTwoPi * shPhase) * 1.5f * clampf (S.shMod, 0.f, 1.f));
-            shLp += shLpC * (shPs.read (shRatio, shWin) - shLp);   // tone control prevents HF feedback build-up
-            shHp += shHpC * (shLp - shHp);                          // remove DC / sub build-up from the loop
+            const float warp = std::sin (kTwoPi * shPhase) * 1.5f * clampf (S.shMod, 0.f, 1.f);
+            const float shRatio = semiToRatio (S.shSemis + warp);
+            // The low voice adds a darker sub-octave layer while the high voice
+            // keeps the classic shimmer. Both feed the same protected feedback path.
+            const float shRatioLow = semiToRatio (S.shSemis - 12.f + warp);
+            const float shHigh = shPs.read (shRatio, shWin);
+            const float shLow = shPsLow.read (shRatioLow, shWin);
+            const float shifted = lerpf (shHigh, shLow, shLowMix);
+            shLp += shLpC * (shifted - shLp);   // tone control prevents HF feedback build-up
+            shHp += shHpC * (shLp - shHp);      // remove DC / sub build-up from the loop
             shFbS = std::tanh (shLp - shHp) * shFb;
 
-            const float aD = am[Fx::Delay] * 0.8f, aR = am[Fx::Reverb] * 0.8f, aS = am[Fx::Shimmer] * 0.9f;
+            const float aD = am[Fx::Delay] * 0.8f * og[Fx::Delay];
+            const float aR = am[Fx::Reverb] * 0.8f * og[Fx::Reverb];
+            const float aS = am[Fx::Shimmer] * 0.9f * og[Fx::Shimmer];
             float o0 = core[0] + dL * aD + rL * aR + sL * aS;
             float o1 = core[1] + dR * aD + rR * aR + sR * aS;
             o0 *= outG; o1 *= outG;
@@ -520,27 +657,41 @@ private:
         }
         const float diveRatio = semiToRatio (-s->diveSemis * e);
 
-        // The first UI instrument is a single Harmony section with two voices.
-        // Its one Mix amount is shared by the down/up voices; the next two array
-        // positions are legacy-reserved and intentionally silent.
+        // Harmony is one instrument with two independent voices. The voice
+        // levels, fine tuning and stereo spread are all real DSP controls; the
+        // shared Maximum Mix still scales the whole Harmony slot.
         const float hAmt = am[Fx::Harmony];
-        float a[kPitchVoices] = { hAmt * 0.5f, hAmt * 0.5f, 0.f,
+        const float hOut = og[Fx::Harmony];
+        float a[kPitchVoices] = { hAmt * clampf (s->harmDownLvl, 0.f, 1.f),
+                                  hAmt * clampf (s->harmUpLvl, 0.f, 1.f), 0.f,
                                   am[Fx::Whammy], am[Fx::Dive], am[Fx::Detune] };
         float S = 0.f; for (int i = 0; i < kPitchVoices; ++i) S += a[i];
         if (S < 0.0005f) return;
 
+        const float downRatio = semiToRatio (s->harmDownSemis + s->harmDownFine * 0.01f);
+        const float upRatio   = semiToRatio (s->harmUpSemis + s->harmUpFine * 0.01f);
         const float ratios[kPitchVoices][2] = {
-            { semiToRatio (s->harmDownSemis), semiToRatio (s->harmDownSemis) },
-            { semiToRatio (s->harmUpSemis),   semiToRatio (s->harmUpSemis)   },
+            { downRatio, downRatio }, { upRatio, upRatio },
             { 1.f, 1.f }, { whamR, whamR }, { diveRatio, diveRatio }, { detUp, detDn } };
         const float scale = S > 1.f ? 1.f / std::sqrt (S) : 1.f;
-        const float dryW = std::max (0.f, 1.f - S);
+        const float wantSpread = clampf (s->harmSpread, 0.f, 1.f);
+        const float outv[kPitchVoices] = { hOut, hOut, hOut, og[Fx::Whammy], og[Fx::Dive], og[Fx::Detune] };
         const float win = clampf (winS, 64.f, 0.15f * (float) sr);
         for (int c = 0; c < 2; ++c)
         {
-            float y = v[c] * dryW;
+            float y = v[c];
             for (int i = 0; i < kPitchVoices; ++i)
-                if (a[i] > 0.0005f) y += ps[i][c].read (ratios[i][c], win) * a[i] * scale;
+            {
+                if (a[i] <= 0.0005f) continue;
+                // Down voice leans left, up voice leans right; the other voices
+                // stay centred. Scaling is applied to the wet term only so an
+                // output level of zero leaves the dry signal intact.
+                const float pan = (i == 0) ? (c == 0 ? 1.f + 0.35f * wantSpread : 1.f - 0.35f * wantSpread)
+                                  : (i == 1) ? (c == 0 ? 1.f - 0.35f * wantSpread : 1.f + 0.35f * wantSpread)
+                                  : 1.f;
+                const float voice = ps[i][c].read (ratios[i][c], win) * scale * pan;
+                y += (voice - v[c]) * a[i] * outv[i];
+            }
             v[c] = y;
         }
     }
@@ -555,22 +706,29 @@ private:
         a = am[Fx::Fuzz];
         if (a > 0.0005f)
         {
-            // Stateful, asymmetrical soft clipping with tone and DC restoration.  This is
-            // deliberately lightweight rather than a copy of any commercial pedal circuit.
+            // Stateful soft clipping with user bias, symmetric/asymmetric modes,
+            // tone shaping, DC restoration and output compensation. Lightweight
+            // and deliberately not a copy of any commercial pedal circuit.
             const float d = clampf (s->fuzzDrive, 0.f, 1.f);
             const float drive = 1.f + 34.f * d * d;
-            const float bias = 0.10f * d;
+            const bool symmetric = s->fuzzMode == 1;
+            const float bias = symmetric ? 0.f
+                                         : 0.10f * d + clampf (s->fuzzBias, -1.f, 1.f) * 0.28f;
             const float biasRef = std::tanh (bias);
+            const float comp = lerpf (0.80f, 1.35f, clampf (s->fuzzComp, 0.f, 1.f));
             const float toneHz = 700.f + 10500.f * clampf (s->fuzzTone, 0.f, 1.f);
             const float toneC = 1.f - std::exp (-kTwoPi * toneHz / fsr);
             const float dcC = 1.f - std::exp (-kTwoPi * 24.f / fsr);
             for (int c = 0; c < 2; ++c)
             {
-                const float clipped = std::tanh (drive * v[c] + bias) - biasRef;
+                const float shaped = std::tanh (drive * v[c] + bias) - biasRef;
+                // A little second-order term gives the asymmetric mode its
+                // even-harmonic "fuzz" edge without unbounded output.
+                const float clipped = symmetric ? shaped : shaped + 0.08f * shaped * shaped;
                 fuzzLp[c] += toneC * (clipped - fuzzLp[c]);
                 fuzzHp[c] += dcC * (fuzzLp[c] - fuzzHp[c]);
-                const float analogish = (fuzzLp[c] - fuzzHp[c] * 0.18f) * (0.78f - 0.24f * d);
-                v[c] = lerpf (v[c], analogish, a);
+                const float analogish = (fuzzLp[c] - fuzzHp[c] * 0.18f) * (0.78f - 0.24f * d) * comp;
+                blendWet (v[c], analogish, a, og[Fx::Fuzz]);
             }
         }
 
@@ -582,6 +740,7 @@ private:
         {
             const float drive = 1.f + 19.f * std::pow (clampf (s->tapeDrive, 0.f, 1.f), 1.35f);
             const float bias = clampf (s->tapeBias, -1.f, 1.f) * 0.18f;
+            const float comp = lerpf (0.86f, 1.30f, clampf (s->tapeComp, 0.f, 1.f));
             const float toneHz = 1200.f + 11800.f * clampf (s->tapeTone, 0.f, 1.f);
             const float toneC = 1.f - std::exp (-kTwoPi * toneHz / fsr);
             tapePhase += (0.18f + 0.9f * clampf (s->tapeWear, 0.f, 1.f)) / fsr;
@@ -594,24 +753,60 @@ private:
                 const float magnet = std::tanh (x + 0.08f * tapeMem[c]) - std::tanh (bias);
                 tapeMem[c] += 0.035f * (magnet - tapeMem[c]);
                 tapeLp[c] += toneC * (magnet - tapeLp[c]);
-                const float saturated = tapeLp[c] * (0.96f - 0.12f * s->tapeDrive);
-                v[c] = lerpf (v[c], saturated, a);
+                const float saturated = tapeLp[c] * (0.96f - 0.12f * s->tapeDrive) * comp;
+                blendWet (v[c], saturated, a, og[Fx::TapeDistortion]);
             }
         }
 
         a = am[Fx::RingMod];
-        rmPh += s->ringFreq / fsr; rmPh -= std::floor (rmPh);
+        {
+            const float inc = clampf (s->ringFreq, 20.f, 4000.f) / fsr;
+            rmPh += inc;
+            const bool wrapped = rmPh >= 1.f;
+            rmPh -= std::floor (rmPh);
+            if (wrapped) { rmSH[0] = rng.bi(); rmSH[1] = rng.bi(); }
+        }
         if (a > 0.0005f)
         {
-            const float car = std::sin (kTwoPi * rmPh);
-            for (int c = 0; c < 2; ++c) v[c] = lerpf (v[c], v[c] * car, a);
+            const float inc = clampf (s->ringFreq, 20.f, 4000.f) / fsr;
+            const float spread = clampf (s->ringSpread, 0.f, 1.f) * 0.5f;
+            for (int c = 0; c < 2; ++c)
+            {
+                const float ph = rmPh + (c == 0 ? -spread : spread);
+                const float p = ph - std::floor (ph);
+                float car = 0.f;
+                switch (std::max (0, std::min (3, s->ringShape)))
+                {
+                    case 0: car = std::sin (kTwoPi * p); break;
+                    case 1: car = 1.f - 4.f * std::fabs (p - 0.5f); break;
+                    case 2: car = std::sin (kTwoPi * p) >= 0.f ? 1.f : -1.f; break;
+                    default: car = rmSH[c]; break;
+                }
+                (void) inc;
+                blendWet (v[c], v[c] * car, a, og[Fx::RingMod]);
+            }
         }
 
         a = am[Fx::Filter];
-        fltPh += s->filtRate / fsr; fltPh -= std::floor (fltPh);
+        fltPh += clampf (s->filtRate, 0.02f, 20.f) / fsr;
+        if (fltPh >= 1.f)
+        {
+            fltPh -= 1.f;
+            fltSH = rng.bi();
+        }
         if (a > 0.0005f)
         {
-            const float lfo = std::sin (kTwoPi * fltPh);
+            const int shape = std::max (0, std::min (3, s->filtShape));
+            float lfo = 0.f;
+            switch (shape)
+            {
+                case 0: lfo = std::sin (kTwoPi * fltPh); break;
+                case 1: lfo = 4.f * std::fabs (fltPh - 0.5f) - 1.f; break;
+                case 2: lfo = fltSH; break;
+                default:
+                    lfo = 0.62f * std::sin (kTwoPi * fltPh)
+                        + 0.38f * std::sin (kTwoPi * (fltPh * 0.37f + 0.23f)); break;
+            }
             const float fc = clampf (s->filtFreq * std::exp2 (s->filtDepth * 2.5f * lfo), 20.f, 0.45f * fsr);
             const float g = std::tan (kPi * fc / fsr);
             for (int c = 0; c < 2; ++c)
@@ -619,22 +814,46 @@ private:
                 float lp, bp, hp;
                 fltSvf[c].run (v[c], g, filtK, lp, bp, hp);
                 const float y = s->filtMode == 0 ? lp : (s->filtMode == 1 ? bp * filtK : hp);
-                v[c] = lerpf (v[c], y, a);
+                blendWet (v[c], y, a, og[Fx::Filter]);
             }
         }
 
         a = am[Fx::Radio];
         if (a > 0.0005f)
         {
+            const int mode = std::max (0, std::min (5, s->radMode));
+            float lo = clampf (s->radioLow, 180.f, 1800.f);
+            float hi = clampf (s->radioHigh, lo + 250.f, 16000.f);
+            float drive = clampf (s->radioDrive, 2.f, 16.f);
+            float res = clampf (s->radRes, 0.f, 1.f);
+            float noise = clampf (s->radNoise, 0.f, 1.f) * 0.03f;
+            switch (mode)
+            {
+                case 0: lo = std::max (lo, 480.f); hi = std::min (hi, 3200.f); drive *= 0.8f; res *= 0.4f; break;
+                case 1: lo = std::max (lo, 300.f); hi = std::min (hi, 2800.f); noise *= 1.5f; break;
+                case 2: lo = std::max (lo, 700.f); hi = std::min (hi, 2400.f); res = std::max (res, 0.7f); break;
+                case 3: res = std::max (res, 0.82f); drive *= 0.7f; break;
+                case 4: lo *= 0.55f; hi = std::min (hi * 1.6f, 12000.f); drive *= 0.55f; noise *= 0.35f; break;
+                case 5: drive *= 1.9f; hi = std::min (hi * 0.9f, 8000.f); break;
+                default: break;
+            }
+            radPh += 3.0f / fsr; if (radPh >= 1.f) radPh -= 1.f;
+            const float loG = std::tan (kPi * clampf (lo, 120.f, 0.35f * fsr) / fsr);
+            const float hiG = std::tan (kPi * clampf (hi, lo + 200.f, 0.43f * fsr) / fsr);
+            const float k = clampf (1.6f - 1.45f * res, 0.06f, 1.6f);
             for (int c = 0; c < 2; ++c)
             {
                 float lp, bp, hp, lp2, bp2, hp2;
-                const float loG = std::tan (kPi * clampf (s->radioLow, 180.f, 1800.f) / fsr);
-                const float hiG = std::tan (kPi * clampf (s->radioHigh, s->radioLow + 300.f, 0.43f * fsr) / fsr);
-                radHp[c].run (v[c], loG, 0.72f, lp, bp, hp);
+                radHp[c].run (v[c], loG, k, lp, bp, hp);
                 radLp[c].run (hp, hiG, 0.72f, lp2, bp2, hp2);
-                const float drive = clampf (s->radioDrive, 2.f, 16.f);
-                v[c] = lerpf (v[c], std::tanh (drive * lp2) / std::sqrt (drive) * 0.95f, a);
+                float y = lp2;
+                if (mode == 1) y *= 0.72f + 0.28f * std::sin (kTwoPi * radPh);           // hollow AM movement
+                if (mode == 2) y = lp2 - bp2 * 0.75f;                                     // hollow mid scoop
+                if (mode == 3) y = bp2 * 1.6f + lp2 * 0.25f;                              // resonant band-pass
+                if (mode == 4) y = std::tanh (y * 1.2f) * 0.9f;                           // broadcast limiting
+                y += rng.bi() * noise;
+                const float driven = std::tanh (drive * y) / std::sqrt (drive) * (mode == 5 ? 1.15f : 0.95f);
+                blendWet (v[c], driven, a, og[Fx::Radio]);
             }
         }
 
@@ -651,7 +870,7 @@ private:
                 {
                     float lp, bp, hp;
                     wahSvf[c].run (v[c], g, k, lp, bp, hp);
-                    v[c] = lerpf (v[c], bp * k * 3.2f, a);
+                    blendWet (v[c], bp * k * 3.2f, a, og[Fx::AutoWah]);
                 }
             }
         }
@@ -692,46 +911,90 @@ private:
                 float y;
                 if (scType == 1)      y = scBuf[c].at (scD);
                 else if (scType == 2) y = scBuf[c].at (2 * pos + 1);
-                else                  y = scBuf[c].at (scD + (pos / scD) * scD);
-                v[c] = lerpf (v[c], y * w, a);
+                else                  y = scBuf[c].at (scD + (pos * scD) / std::max (1, scLen));
+                blendWet (v[c], y * w, a, og[Fx::Scatter]);
             }
         }
         ++scPos;
 
-        // ---- Granular cloud: two overlapping Hann-windowed read heads over a short ring buffer.
-        // Pitch and jitter change the read trajectory; all state is preallocated in prepare().
-        for (int c = 0; c < 2; ++c) grBuf[c].push (v[c]);
+        // ---- Granular cloud -------------------------------------------------
+        // A preallocated stereo history feeds up to 12 overlapping Hann grains.
+        // Each grain has its own pitch-scaled read trajectory, direction, pan and
+        // lifetime; no allocation, no locks, no unbounded loops in process().
+        {
+            const float fb = clampf (s->grainFb, 0.f, 0.6f);
+            for (int c = 0; c < 2; ++c)
+                grBuf[c].push (std::tanh (v[c] + grLast[c] * fb));
+        }
         a = am[Fx::Granular];
         if (a > 0.0005f)
         {
-            const float gSize = clampf (s->grainSizeMs * 0.001f * fsr, 32.f, 0.45f * fsr);
-            const float density = clampf (s->grainDensity, 2.f, 40.f);
-            for (int h = 0; h < 2; ++h)
+            const float fsrLocal = fsr;
+            const int maxBack = grBuf[0].size() - 16;
+            const float density = clampf (s->grainDensity, 1.f, 40.f);
+            const float pitch = clampf (s->grainPitch, 0.25f, 4.f);
+            const float pos = clampf (s->grainPos, 0.f, 1.f);
+            const float spray = clampf (s->grainJitter, 0.f, 1.f);
+            const float spread = clampf (s->grainSpread, 0.f, 1.f);
+            const float revProb = clampf (s->grainReverse, 0.f, 1.f);
+            const int lenBase = std::max (32, std::min ((int) (clampf (s->grainSizeMs, 20.f, 500.f) * 0.001f * fsrLocal),
+                                                         maxBack - 256));
+
+            grainAcc += density / fsrLocal;
+            int spawns = 0;
+            while (grainAcc >= 1.f && spawns < 4)
             {
-                const float oldPhase = grPhase[h];
-                grPhase[h] += density / fsr;
-                if (grPhase[h] >= 1.f)
+                grainAcc -= 1.f;
+                ++spawns;
+                int idx = 0;
+                int oldest = -1;
+                for (int i = 0; i < kMaxGrains; ++i)
                 {
-                    grPhase[h] -= 1.f;
-                    grOffset[h] = rng.bi() * clampf (s->grainJitter, 0.f, 1.f) * 0.18f * fsr;
+                    if (! grains[i].active) { idx = i; oldest = -1; break; }
+                    if (oldest < 0 || grains[i].age > grains[oldest].age) oldest = i;
                 }
-                if (oldPhase < grPhase[h]) { /* wrap is handled above; keep branch predictable */ }
+                if (oldest >= 0) idx = oldest;
+                Grain& g = grains[idx];
+                g.len = std::max (32, std::min ((int) (lenBase * (0.6f + 0.8f * rng.uni())), maxBack - 128));
+                const float hist = (0.015f + (1.f - pos) * 1.9f) * fsrLocal;
+                const float base = clampf (hist, 64.f, (float) (maxBack - 96));
+                const float jit = rng.bi() * spray * 0.5f * fsrLocal;
+                g.rev = rng.uni() < revProb;
+                g.back = clampf (g.rev ? base + jit : base + (float) g.len * pitch + jit,
+                                 8.f, (float) (maxBack - 8));
+                g.inc = g.rev ? pitch : -pitch;
+                g.age = 0;
+                const float pan = rng.bi() * spread;
+                g.gl = std::sqrt (0.5f * (1.f - pan));
+                g.gr = std::sqrt (0.5f * (1.f + pan));
+                g.active = true;
             }
+
             for (int c = 0; c < 2; ++c)
             {
                 float cloud = 0.f, norm = 0.f;
-                for (int h = 0; h < 2; ++h)
+                for (auto& g : grains)
                 {
-                    const float phase = grPhase[h];
-                    const float win = 0.5f - 0.5f * std::cos (kTwoPi * phase);
-                    const float pitch = clampf (s->grainPitch, 0.5f, 2.f);
-                    const float delay = clampf (32.f + (1.f - phase) * gSize * pitch + grOffset[h], 8.f, (float) (grBuf[c].size() - 16));
-                    cloud += grBuf[c].read ((double) delay) * win;
-                    norm += win;
+                    if (! g.active) continue;
+                    g.back += g.inc;
+                    if (g.back < 4.f || g.back > (float) (maxBack - 4)) { g.active = false; continue; }
+                    const float phase = (float) g.age / (float) std::max (1, g.len);
+                    const float env = 0.5f - 0.5f * std::cos (kTwoPi * phase);
+                    cloud += grBuf[c].read ((double) g.back) * env * (c == 0 ? g.gl : g.gr);
+                    norm += env;
+                    if (c == 1)
+                    {
+                        if (++g.age >= g.len) g.active = false;
+                    }
                 }
                 if (norm > 0.05f) cloud /= norm;
-                v[c] = lerpf (v[c], cloud * 0.88f, a);
+                grLast[c] = cloud * 0.9f;
+                blendWet (v[c], grLast[c], a, og[Fx::Granular]);
             }
+        }
+        else
+        {
+            grLast[0] = grLast[1] = 0.f;
         }
 
         // ---- Stutter: loops the slice captured at the moment the effect was engaged
@@ -741,7 +1004,7 @@ private:
         if (stMix * a > 0.0005f)
         {
             const float w = std::max (0.f, std::min (1.f, std::min ((float) stPos / (float) F, (float) (stLen - stPos) / (float) F)));
-            for (int c = 0; c < 2; ++c) v[c] = lerpf (v[c], stCap[c][(size_t) stPos] * w, a * stMix);
+            for (int c = 0; c < 2; ++c) blendWet (v[c], stCap[c][(size_t) stPos] * w, a * stMix, og[Fx::Stutter]);
             if (++stPos >= stLen) stPos = 0;
         }
 
@@ -757,7 +1020,7 @@ private:
         {
             const int pos = std::min (rvPos, rvLen);
             const float w = std::max (0.f, std::min ({ 1.f, (float) pos / (float) F, (float) (rvLen - pos) / (float) F }));
-            for (int c = 0; c < 2; ++c) v[c] = lerpf (v[c], rvBuf[c].at (2 * pos + 1) * w, a);
+            for (int c = 0; c < 2; ++c) blendWet (v[c], rvBuf[c].at (2 * pos + 1) * w, a, og[Fx::Reverse]);
         }
         ++rvPos;
 
@@ -775,7 +1038,8 @@ private:
         {
             const float gain = std::min (1.f, tsRate * 12.f);
             for (int c = 0; c < 2; ++c)
-                v[c] = lerpf (v[c], tsBuf[c].read (std::max (1.0, (double) tsLag + 1.0)) * gain, a * tsMix);
+                blendWet (v[c], tsBuf[c].read (std::max (1.0, (double) tsLag + 1.0)) * gain,
+                          a * tsMix, og[Fx::TapeStop]);
         }
 
         // ---- Freeze (two overlapping hann grains looping the captured audio)
@@ -788,7 +1052,8 @@ private:
             const float w1 = 0.5f - 0.5f * std::cos (kTwoPi * (float) fzPos / (float) fzLen);
             const float w2 = 0.5f - 0.5f * std::cos (kTwoPi * (float) p2 / (float) fzLen);
             for (int c = 0; c < 2; ++c)
-                v[c] = lerpf (v[c], fzCap[c][(size_t) fzPos] * w1 + fzCap[c][(size_t) p2] * w2, a * fzMix);
+                blendWet (v[c], fzCap[c][(size_t) fzPos] * w1 + fzCap[c][(size_t) p2] * w2,
+                          a * fzMix, og[Fx::Freeze]);
             fzPos = (fzPos + 1) % fzLen;
         }
 
@@ -812,7 +1077,8 @@ private:
                 const float d1 = (11.f + 7.f * s->choDepth * std::sin (kTwoPi * p)) * msS;
                 const float d2 = (14.f + 7.f * s->choDepth * std::sin (kTwoPi * (p + 0.5f))) * msS;
                 const float wet = 0.5f * (choD[c].read ((double) d1) + choD[c].read ((double) d2));
-                v[c] = (v[c] + a * wet) / (1.f + 0.5f * a);
+                const float mixed = (v[c] + a * wet) / (1.f + 0.5f * a);
+                v[c] += (mixed - v[c]) * og[Fx::Chorus];
             }
 
         // Flanger
@@ -827,7 +1093,11 @@ private:
                 wet = flD[c].read ((double) ((0.5f + 3.5f * lfo) * msS));
             }
             flD[c].push (v[c] + clampf (s->flFb, -0.9f, 0.9f) * wet);
-            if (a > 0.0005f) v[c] = (v[c] + a * wet) / (1.f + 0.5f * a);
+            if (a > 0.0005f)
+            {
+                const float mixed = (v[c] + a * wet) / (1.f + 0.5f * a);
+                v[c] += (mixed - v[c]) * og[Fx::Flanger];
+            }
         }
 
         // Phaser (4 allpass stages)
@@ -842,7 +1112,8 @@ private:
                 float x = v[c] + clampf (s->phFb, 0.f, 0.9f) * phFbS[c];
                 for (int j = 0; j < 4; ++j) { const float y = co * x + phZ[c][j]; phZ[c][j] = x - co * y; x = y; }
                 phFbS[c] = x;
-                v[c] = v[c] * (1.f - 0.5f * a) + x * 0.5f * a;
+                const float mixed = v[c] * (1.f - 0.5f * a) + x * 0.5f * a;
+                v[c] += (mixed - v[c]) * og[Fx::Phaser];
             }
 
         // Vibrato
@@ -853,7 +1124,7 @@ private:
             for (int c = 0; c < 2; ++c)
             {
                 const float d = (4.f + 3.5f * s->vibDepth * std::sin (kTwoPi * (vibPh + 0.1f * (float) c))) * msS;
-                v[c] = lerpf (v[c], vibD[c].read ((double) d), a);
+                blendWet (v[c], vibD[c].read ((double) d), a, og[Fx::Vibrato]);
             }
 
         // LFO-DEATHY: dark, resonant vintage sweep with asymmetric movement.
@@ -874,7 +1145,7 @@ private:
                 const float wet = (0.96f - 0.42f * tone) * lp
                                 + (0.28f + 0.58f * tone) * bp
                                 - (0.18f * tone) * hp;
-                v[c] = lerpf (v[c], wet, a);
+                blendWet (v[c], wet, a, og[Fx::LfoDeathy]);
             }
         }
 
@@ -893,7 +1164,59 @@ private:
                 float lp, bp, hp; hauntSvf[c].run (v[c], g, k, lp, bp, hp);
                 const float darkness = 0.18f + 0.72f * clampf (s->hauntTone, 0.f, 1.f);
                 const float wet = bp * (1.25f - darkness * 0.35f) + lp * darkness * 0.48f;
-                v[c] = lerpf (v[c], wet, a);
+                blendWet (v[c], wet, a, og[Fx::LfoHauntedRadio]);
+            }
+        }
+
+        // LFO-TAPE GHOST: slow tape-like pitch drift plus a saturated, resonant
+        // low-pass. Distinct from Deathy (dark asymmetric sweep) and Haunted
+        // Radio (radio band-pass) in both filter topology and modulation curve.
+        a = am[Fx::LfoTapeGhost];
+        ghostPhase += clampf (s->ghostRate, 0.02f, 5.f) / fsr;
+        if (ghostPhase >= 1.f) ghostPhase -= 1.f;
+        if (a > 0.0005f)
+        {
+            const float drift = 0.55f * std::sin (kTwoPi * ghostPhase)
+                              + 0.30f * std::sin (kTwoPi * (ghostPhase * 0.37f + 0.21f))
+                              + 0.15f * std::sin (kTwoPi * ghostPhase * 2.3f);
+            const float fc = clampf (420.f * std::exp2 (drift * 3.3f * clampf (s->ghostDepth, 0.f, 1.f)),
+                                     45.f, 0.40f * fsr);
+            const float g = std::tan (kPi * fc / fsr);
+            const float k = clampf (1.55f - 1.40f * clampf (s->ghostRes, 0.f, 1.f), 0.08f, 1.55f);
+            const float tone = clampf (s->ghostTone, 0.f, 1.f);
+            for (int c = 0; c < 2; ++c)
+            {
+                float lp, bp, hp; ghostSvf[c].run (v[c], g, k, lp, bp, hp);
+                const float saturated = std::tanh ((lp * (0.8f + 0.35f * tone) + bp * 0.35f) * 1.4f);
+                const float wet = saturated * 0.85f + hp * tone * 0.06f;
+                blendWet (v[c], wet, a, og[Fx::LfoTapeGhost]);
+            }
+        }
+
+        // LFO-LUNAR TREMOR: rhythmic amplitude movement combined with a resonant
+        // sweep. S&H and triangle shapes give it a very different motion from
+        // Deathy's asymmetric sine drift.
+        a = am[Fx::LfoLunarTremor];
+        tremorPhase += clampf (s->tremorRate, 0.05f, 12.f) / fsr;
+        if (tremorPhase >= 1.f) { tremorPhase -= 1.f; tremorSH = rng.bi(); }
+        if (a > 0.0005f)
+        {
+            float lfo = 0.f;
+            switch (std::max (0, std::min (2, s->tremorShape)))
+            {
+                case 0: lfo = std::sin (kTwoPi * tremorPhase); break;
+                case 1: lfo = 4.f * std::fabs (tremorPhase - 0.5f) - 1.f; break;
+                default: lfo = tremorSH; break;
+            }
+            const float depth = clampf (s->tremorDepth, 0.f, 1.f);
+            const float amp = 1.f - depth * 0.55f * (0.5f + 0.5f * lfo);
+            const float fc = clampf (700.f * std::exp2 (lfo * 2.6f * depth), 60.f, 0.42f * fsr);
+            const float g = std::tan (kPi * fc / fsr);
+            const float k = clampf (1.5f - 1.35f * clampf (s->tremorRes, 0.f, 1.f), 0.08f, 1.5f);
+            for (int c = 0; c < 2; ++c)
+            {
+                float lp, bp, hp; tremorSvf[c].run (v[c], g, k, lp, bp, hp);
+                blendWet (v[c], (lp * 0.7f + bp * 0.45f) * amp, a, og[Fx::LfoLunarTremor]);
             }
         }
     }
@@ -904,11 +1227,20 @@ private:
     detail::Rng rng;
 
     std::array<float, kNumFx> am {};
+    std::array<float, kNumFx> og {};
     std::array<bool, kNumFx> prevAct {};
     bool prevEngaged = false;
     float gEng = 0.f, inG = 1.f, outG = 1.f;
     float mixC = 0.01f, fzC = 0.01f;
     int fadeSamples = 144;
+
+    // Scales the wet contribution of one instrument by its output level while
+    // leaving the dry path untouched. out=1 reproduces the historical mix.
+    static inline void blendWet (float& v, float wet, float a, float out) noexcept
+    {
+        const float mixed = v + (wet - v) * a;
+        v += (mixed - v) * out;
+    }
 
     // pitch
     detail::PitchShifter ps[kPitchVoices][2];
@@ -917,25 +1249,39 @@ private:
     // fx
     float tapeMem[2] {}, tapeLp[2] {}, tapePhase = 0.f;
     float fuzzLp[2] {}, fuzzHp[2] {}, rmPh = 0.f, fltPh = 0.f, filtK = 1.f, wahEnv = 0.f, wahAtk = 0.01f, wahRel = 0.001f;
+    float rmSH[2] {}, fltSH = 0.f, radPh = 0.f;
     float hpG = 0.03f, lpG = 0.2f;
     detail::SVF fltSvf[2], radHp[2], radLp[2], wahSvf[2];
     // glitch
     DelayLine stBuf[2], rvBuf[2], scBuf[2], tsBuf[2], fzBuf[2], grBuf[2];
-    float grPhase[2] { 0.f, 0.5f }, grOffset[2] {};
     std::vector<float> stCap[2], fzCap[2];
     bool stActive = false, tsActive = false, fzActive = false;
     int stLen = 64, stPos = 0, rvPos = 0, rvLen = 64, scPos = 0, scLen = 64, scType = 0, scD = 64, fzLen = 64, fzPos = 0;
     long long rvIdx = -1, scIdx = -1;
     float stMix = 0.f, tsMix = 0.f, fzMix = 0.f, tsRate = 1.f, tsLag = 0.f;
+
+    // Granular voices. All storage is preallocated; only the small fixed array
+    // below is touched by the audio thread.
+    static constexpr int kMaxGrains = 12;
+    struct Grain
+    {
+        bool  active = false, rev = false;
+        float back = 0.f, inc = 0.f, gl = 0.7f, gr = 0.7f;
+        int   age = 0, len = 1;
+    };
+    Grain grains[kMaxGrains];
+    float grainAcc = 0.f, grLast[2] {};
+
     // mod
     DelayLine choD[2], flD[2], vibD[2];
     float choPh = 0.f, flPh = 0.f, phPh = 0.f, vibPh = 0.f, phZ[2][4] {}, phFbS[2] {}, flFbS[2] {};
-    float deathyPhase = 0.f, hauntPhase = 0.f;
-    detail::SVF deathySvf[2], hauntSvf[2];
+    float deathyPhase = 0.f, hauntPhase = 0.f, ghostPhase = 0.f;
+    float tremorPhase = 0.f, tremorSH = 0.f;
+    detail::SVF deathySvf[2], hauntSvf[2], ghostSvf[2], tremorSvf[2];
     // time
     detail::StereoDelay dly;
     detail::FdnReverb rev, shRev;
-    detail::PitchShifter shPs;
+    detail::PitchShifter shPs, shPsLow;
     float shFbS = 0.f, shLp = 0.f, shHp = 0.f, shPhase = 0.f;
 };
 

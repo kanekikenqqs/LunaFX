@@ -2,196 +2,117 @@
 #include "PluginProcessor.h"
 #include "UiWidgets.h"
 
-// Design canvas – host window is scaled to match
-constexpr int kDesignW = 1440, kDesignH = 860;
-constexpr int kNavW    = 58;    // left nav strip
-constexpr int kTopH    = 50;    // top bar
-constexpr int kSplitX  = 700;   // XY pad | right panel split
-constexpr int kRightX  = kNavW + kSplitX;
+constexpr int kDesignW = 1440;
+constexpr int kDesignH = 900;
+constexpr int kTopH    = 58;
+constexpr int kLeftW   = 716;
+constexpr int kRackX   = 724;
+constexpr int kRackW   = 350;
+constexpr int kCtxX    = 1082;
+constexpr int kCtxW    = 358;
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  RingPadNode  — one assignable instrument slot on the circle rim
-// ──────────────────────────────────────────────────────────────────────────────
-struct RingPadNode
-{
-    float   angleDeg  = 0.f;    // position on the ring
-    int     fxIndex   = -1;     // -1 = unassigned
-    bool    active    = false;  // is this FX currently producing sound?
-    float   activity  = 0.f;   // 0..1 level meter
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
-//  FxDetailPanel  — right-hand knob grid + shape strip for a selected FX
-// ──────────────────────────────────────────────────────────────────────────────
-class FxDetailPanel : public juce::Component
+// ─────────────────────────────────────────────────────────────────────────────
+//  The eight-slot rack. Every row is one of the eight XY slots.
+// ─────────────────────────────────────────────────────────────────────────────
+class RackPanel : public juce::Component
 {
 public:
-    explicit FxDetailPanel (LunaFXProcessor& p);
-    void showFx (int fxIndex);            // -1 = clear / nothing selected
-    void refresh();                        // call from timer to update values
-    void resized() override;
+    explicit RackPanel (LunaFXProcessor& p);
     void paint (juce::Graphics&) override;
-
-private:
-    LunaFXProcessor& proc;
-    int               currentFx = -1;
-    // dynamic grid for each selected FX: Mix plus all effect-specific controls
-    std::vector<std::unique_ptr<ui::ParamControl>> knobs;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FxDetailPanel)
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
-//  FxCategoryPanel  — category tabs + scrollable FX list with amount + toggle
-// ──────────────────────────────────────────────────────────────────────────────
-class FxCategoryPanel : public juce::Component,
-                        public juce::Button::Listener
-{
-public:
-    explicit FxCategoryPanel (LunaFXProcessor& p, FxDetailPanel& detail);
-    void refresh();         // call from timer
     void resized() override;
-    void paint (juce::Graphics&) override;
-    void buttonClicked (juce::Button*) override;
-
-    // returns currently selected FX index (-1 = none)
-    int selectedFx() const { return selFx; }
-
-    void selectCategory (int cat, bool clearSelection = false);   // public – called by LunaFXEditor
-
-private:
-    void buildCategoryRows();
-
-    LunaFXProcessor& proc;
-    FxDetailPanel&   detail;
-    int activeCat = 0;
-    int selFx     = -1;
-    int lastProgram = -1;
-    unsigned int lastPresetRevision = 0;
-    float presetFlash = 0.f;
-
-    // Visible categories: Pitch, FX, Glitch, Mod, Time (internal reserved/GEN category removed)
-    juce::OwnedArray<juce::TextButton> catTabs;
-    // per-FX row: name label, amount slider, power toggle
-    struct FxRow
-    {
-        int   fxIdx;
-        std::unique_ptr<juce::TextButton>  nameBtn;  // click to select / expand
-        std::unique_ptr<juce::Slider>      amt;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> amtAtt;
-        std::unique_ptr<juce::ToggleButton> power;
-        bool  onPad = false;
-    };
-    std::vector<FxRow> rows;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FxCategoryPanel)
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
-//  PresetBrowserPanel  — factory + user folder browser
-// ──────────────────────────────────────────────────────────────────────────────
-class PresetBrowserPanel : public juce::Component,
-                           public juce::Button::Listener
-{
-public:
-    explicit PresetBrowserPanel (LunaFXProcessor& p);
-    void resized() override;
-    void paint (juce::Graphics&) override;
-    void buttonClicked (juce::Button*) override;
-    void refreshList();
-
-    void saveCurrentPreset();         // public – called by LunaFXEditor
-
-private:
-    void loadPreset (int programIndex);
-
-    LunaFXProcessor& proc;
-    int  activeFolder = 0;   // 0=Factory, 1=My Presets
-
-    juce::OwnedArray<juce::TextButton> folderBtns;
-    juce::ListBox presetList;
-
-    juce::File userPresetDirectory() const;
-    std::vector<juce::File> userPresetFiles() const;
-    void loadUserPreset (int row);
-    std::vector<juce::File> cachedUserPresets;
-
-    struct PresetListModel : public juce::ListBoxModel
-    {
-        PresetBrowserPanel* owner = nullptr;
-        LunaFXProcessor* proc = nullptr;
-        int folder = 0;    // 0=factory programs, 1=saved user presets
-        int getNumRows() override;
-        void paintListBoxItem (int row, juce::Graphics& g,
-                               int w, int h, bool selected) override;
-        void listBoxItemClicked (int row, const juce::MouseEvent&) override;
-    } listModel;
-
-    juce::TextButton saveBtn { "+ SAVE" };
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PresetBrowserPanel)
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
-//  PlayPage  — XY ring pad + bottom controls
-// ──────────────────────────────────────────────────────────────────────────────
-class PlayPage : public juce::Component
-{
-public:
-    explicit PlayPage (LunaFXProcessor& p);
+    void refresh();
     void tick (float dt);
-    void paint (juce::Graphics&) override;
-    void resized() override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp   (const juce::MouseEvent&) override;
+    void flashPreset();
+    void setSelectedSlot (int slot);
 
-    // call when preset changes to re-read node assignments
-    void syncNodesToPreset();
+    std::function<void (int)> onSelectSlot;
 
 private:
-    void drawRingPad (juce::Graphics&);
-    void drawNode    (juce::Graphics&, const RingPadNode&, juce::Point<float> centre, float R);
-    RingPadNode* hitTestNode (juce::Point<float> pos, float R, juce::Point<float> centre);
+    void categorySelected (int cat);
+    bool rawEnabled (int slot) const;
 
     LunaFXProcessor& proc;
-    ui::CircleXYPad  pad;      // the existing XY component (reused for puck drag)
-    ui::AccentButton accent;
-    std::unique_ptr<ui::ParamControl> chaos, rate, depth, feedback;
-    ui::IconButton shuffleBtn { ui::IconButton::Shuffle },
-                   prevBtn    { ui::IconButton::Prev    },
-                   nextBtn    { ui::IconButton::Next    };
-
-    // 16 rim nodes (8 per half-circle), one for each assignable FX zone
-    static constexpr int kNumNodes = 16;
-    RingPadNode nodes[kNumNodes];
-
-    // drag state for node assignment
-    int  draggingNode = -1;
-    bool dragConsumed = false;
-
-    juce::String shownPreset;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlayPage)
+    ui::CategoryBar cats { ui::accent() };
+    std::array<std::unique_ptr<ui::SlotRow>, params::kNumSlots> rows;
+    std::unique_ptr<ui::KnobCard> inKnob, outKnob, dryKnob;
+    int selected = -1;
+    int lastTheme = -1;
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  SetupPage — global settings and 16 configurable XY routing nodes
-// ──────────────────────────────────────────────────────────────────────────────
-class SetupPage : public juce::Component
+// ─────────────────────────────────────────────────────────────────────────────
+//  Context panel for the selected slot: big knobs, real parameters only.
+// ─────────────────────────────────────────────────────────────────────────────
+class ContextPanel : public juce::Component
 {
 public:
-    explicit SetupPage (LunaFXProcessor& p);
-    void paint (juce::Graphics&) override;
+    explicit ContextPanel (LunaFXProcessor& p);
+    void showSlot (int slot);
+    void refresh();
+    void tick();
     void resized() override;
+    void paint (juce::Graphics&) override;
+
 private:
-    std::vector<std::unique_ptr<ui::ParamControl>> knobs, combos, toggles;
-    std::vector<std::unique_ptr<ui::ParamControl>> zoneCombos, zoneToggles; // 16 configurable rim nodes
+    void rebuild();
+
+    LunaFXProcessor& proc;
+    int slot = -1;
+    int fx = -2;
+    float lastLive = -1.f;
+    float lastMax = -1.f;
+    bool lastEnabled = true;
+    std::vector<std::unique_ptr<ui::KnobCard>> cards;
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  LunaFXEditor
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  Preset library overlay.
+// ─────────────────────────────────────────────────────────────────────────────
+class PresetOverlay : public juce::Component,
+                      public juce::Button::Listener
+{
+public:
+    explicit PresetOverlay (LunaFXProcessor& p);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void buttonClicked (juce::Button*) override;
+    void refresh();
+    void openSave();
+    void setFolder (int f);
+
+    std::function<void()> onClose;
+
+private:
+    struct Row { int program = -1; int file = -1; };
+    void rebuild();
+    void loadRow (int row);
+    juce::File userDir() const;
+    std::vector<juce::File> userFiles() const;
+    void saveWithName (const juce::String& name);
+
+    struct Model : juce::ListBoxModel
+    {
+        PresetOverlay* owner = nullptr;
+        int getNumRows() override;
+        void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool selected) override;
+        void listBoxItemClicked (int row, const juce::MouseEvent&) override;
+    } model;
+
+    LunaFXProcessor& proc;
+    juce::OwnedArray<juce::TextButton> catButtons;
+    juce::TextButton factoryBtn { "FACTORY" }, userBtn { "MY PRESETS" };
+    juce::TextButton closeBtn { "CLOSE" }, saveBtn { "+ SAVE" };
+    juce::ListBox list;
+    juce::String activeCategory { "All" };
+    std::vector<juce::String> categories;
+    std::vector<Row> rows;
+    std::vector<juce::File> cachedUserFiles;
+    int folder = 0;
+    std::unique_ptr<juce::TextEditor> saveEditor;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Editor
+// ─────────────────────────────────────────────────────────────────────────────
 class LunaFXEditor : public juce::AudioProcessorEditor,
                      private juce::Timer
 {
@@ -208,37 +129,41 @@ private:
         void paint (juce::Graphics& g) override { owner.paintContent (g); }
         LunaFXEditor& owner;
     };
+
     void paintContent (juce::Graphics&);
     void timerCallback() override;
-    void showNav (int idx);  // 0=XY 1=PITCH 2=FX 3=GLITCH 4=MOD 5=TIME 6=PRE 7=SET
+    void setSelectedSlot (int slot);
+    void openPresetBrowser (bool show);
+    void launchSave();
+    void updatePresetName();
 
     LunaFXProcessor& proc;
-    ui::LunaLnF      lnf;
-    Content          content { *this };
+    ui::LunaLnF lnf;
+    Content content { *this };
 
-    // top-bar widgets
-    juce::TextButton  presetPrev { "<" }, presetNext { ">" };
-    ui::PresetLabel   presetLabel;
-    juce::TextButton  saveBtn { "SAVE" }, folderBtn { "FOLDER" };
-    juce::Slider      inSlider, outSlider;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> inAtt, outAtt;
-    std::unique_ptr<ui::ParamControl> dryWet;
-    ui::KillButton    kill;
-    ui::BypassButton  bypass;
+    ui::LunarCircle circle;
+    RackPanel rack;
+    ContextPanel context;
+    PresetOverlay presets;
 
-    // left nav buttons (8)
-    juce::OwnedArray<juce::TextButton> navBtns;
-    int  activeNav = 0;
+    ui::AccentButton accent;
+    ui::KillButton kill;
+    ui::BypassButton bypass;
 
-    // pages
-    PlayPage         play;
-    SetupPage        setup;
+    std::unique_ptr<ui::KnobCard> depthKnob, fadeKnob, chaosKnob;
+    std::unique_ptr<ui::ParamToggle> touchToggle, springToggle;
 
-    // right panel (persistent)
-    FxDetailPanel    fxDetail;
-    FxCategoryPanel  fxCats;
-    PresetBrowserPanel presets;
+    juce::TextButton presetPrev { "<" }, presetNext { ">" };
+    juce::TextButton presetName;
+    juce::TextButton saveBtn { "SAVE" }, browseBtn { "PRESETS" };
+    juce::TextButton themeBtn { "DAY" };
+    juce::TooltipWindow tooltip { this, 620 };
+
     bool presetPanelVisible = false;
+    int selectedSlot = 0;
+    unsigned int lastPresetRevision = 0;
+    int lastTheme = 0;
+    juce::String lastPresetName;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LunaFXEditor)
 };

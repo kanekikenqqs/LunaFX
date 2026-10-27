@@ -77,7 +77,7 @@ int main(int argc, char** argv)
 
     // 3. ring mod sidebands
     {
-        Engine e; e.prepare(sr); Settings S; S.engaged = true; S.amt[Fx::RingMod] = 1.f; S.ringFreq = 100;
+        Engine e; e.prepare(sr); Settings S; S.engaged = true; S.amt[Fx::RingMod] = 1.f; S.ringFreq = 100; S.ringSpread = 0.f;
         std::vector<float> in(48000), out;
         for (int i = 0; i < (int) in.size(); ++i) in[i] = 0.3f * std::sin(2 * kTestPi * 440.0 * i / sr);
         run(e, S, in, out);
@@ -170,6 +170,50 @@ int main(int argc, char** argv)
             check(r.peak < 3.0 && endRms < 0.05, names[k]);
         }
     }
+    // 8. granular at extreme settings: no allocation, no runaway, stable pitch.
+    {
+        Engine e; e.prepare (sr); Settings S; S.engaged = true;
+        S.amt[Fx::Granular] = 1.f; S.grainSizeMs = 500.f; S.grainDensity = 40.f;
+        S.grainPitch = 4.f; S.grainJitter = 1.f; S.grainReverse = 1.f;
+        S.grainSpread = 1.f; S.grainFb = 0.6f; S.grainPos = 1.f;
+        std::vector<float> in (96000), out;
+        for (int i = 0; i < (int) in.size(); ++i) in[i] = 0.4f * std::sin (2 * kTestPi * 220.0 * i / sr);
+        Res r = run (e, S, in, out, 64);
+        printf ("  granular extreme: peak %.3f rms %.4f bad %d\n", r.peak, r.rms, r.bad);
+        check (r.bad == 0 && r.peak < 3.0, "granular extreme settings remain stable and bounded");
+    }
+
+    // 9. Kill Switch / clearTails: the captured and delayed state really clears.
+    {
+        Engine e; e.prepare (sr); Settings S; S.engaged = true;
+        S.amt[Fx::Delay] = 1.f; S.amt[Fx::Reverb] = 1.f; S.amt[Fx::Shimmer] = 1.f;
+        S.dlyFb = 0.95f; S.revDecay = 12.f; S.shFb = 0.85f; S.shDecay = 16.f;
+        std::vector<float> in (96000), out;
+        for (int i = 0; i < (int) in.size(); ++i) in[i] = 0.35f * std::sin (2 * kTestPi * 110.0 * i / sr);
+        run (e, S, in, out);
+        e.clearTails();
+        std::vector<float> silence (48000, 0.f), after;
+        Res r = run (e, S, silence, after);
+        double tail = 0; for (float v : after) tail = std::max (tail, (double) std::fabs (v));
+        printf ("  kill/clearTails: peak after clear %.6f bad %d\n", tail, r.bad);
+        check (r.bad == 0 && tail < 0.01, "clearTails removes delay/reverb/shimmer tails");
+    }
+
+    // 10. Delay freeze must hold safely and release without permanent mute.
+    {
+        Engine e; e.prepare (sr); Settings S; S.engaged = true; S.amt[Fx::Delay] = 1.f;
+        S.dlyFb = 0.95f; S.dlyMode = 4; S.dlyFreeze = true;
+        std::vector<float> in (48000), out;
+        for (int i = 0; i < (int) in.size(); ++i) in[i] = 0.3f * std::sin (2 * kTestPi * 440.0 * i / sr);
+        Res r = run (e, S, in, out);
+        check (r.bad == 0 && r.peak < 3.0, "delay freeze is bounded");
+        S.dlyFreeze = false;
+        std::vector<float> in2 (4800), out2;
+        for (int i = 0; i < (int) in2.size(); ++i) in2[i] = 0.3f;
+        Res r2 = run (e, S, in2, out2);
+        check (r2.bad == 0 && r2.peak > 0.01, "delay freeze releases into audio again");
+    }
+
     printf("\n%s (%d failures)\n", fails ? "SOME TESTS FAILED" : "ALL TESTS PASSED", fails);
     return fails;
 }

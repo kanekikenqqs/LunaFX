@@ -1,20 +1,49 @@
-# Luna FX 1.1.1 — startup crash investigation
+# Luna FX startup crash investigation
 
-## Root cause found in the uploaded source
+## Historical root cause (1.1.1 source)
 
-`SetupPage` was still being constructed by `LunaFXEditor`, even though its old routing UI had been removed. The old constructor passed empty/null parameter IDs to `ui::ParamControl`. `ParamControl` then captured `p->getNormalisableRange()` while constructing its slider formatter, which dereferenced the null pointer. In addition, `SetupPage::resized()` indexed four ComboBox controls when only three existed, then indexed empty routing vectors. `LunaFXEditor::resized()` calls `setup.setBounds()` during editor construction, so those out-of-range accesses could crash as soon as the editor was instantiated.
+The uploaded 1.1.1 source still constructed `SetupPage` from `LunaFXEditor`
+even though the old routing UI had been removed. `SetupPage` passed empty/null
+parameter IDs to `ui::ParamControl`; `ParamControl` then read
+`p->getNormalisableRange()` while constructing its formatter, dereferencing a
+null `RangedAudioParameter*`. In addition, `SetupPage::resized()` indexed four
+combo boxes when only three existed, then indexed empty routing vectors.
+`LunaFXEditor::resized()` called `setup.setBounds()` while the editor was being
+constructed, so those invalid accesses could occur as soon as the editor opened.
 
-## Fixes in this package
+## State of the supplied 1.2.1 source
 
-- Added a release-build null guard to `ParamControl`, so stale/missing parameter IDs render a safe “unavailable” label instead of dereferencing a null pointer.
-- Reconnected the setup routing controls to the actual `n0..n15` and `n0e..n15e` parameters and made the layout size-aware. There are now 16 configurable routing points in a four-column grid.
-- Added a dedicated `SET` navigation page so the routing settings can actually be reached; `PRE` remains the preset browser.
-- Guarded FX detail selection indices, validated incoming plug-in state, clamped restored program indices, and reset the momentary KILL parameter on state restore.
-- Replaced invalid/non-finite sample-rate values with a safe 48 kHz fallback before allocating DSP buffers.
-- Added a user preset save/load path under the user's application-data directory and removed nonfunctional empty placeholder folders.
-- Fixed the Windows batch build script to use `installer\\LunaFX.iss`, fixed the invalid installer GUID, and synchronised the displayed version to 1.1.1.
-- Made the central XY texture restrained monochrome. DSP algorithm coefficients and routing in `Engine.h` were not changed as part of the crash fix.
+The supplied 1.2.1 tree **does not contain `SetupPage`**. `ui::ParamControl`
+already returns early when `s.getParameter(id)` is null, and the setup routing
+grid is gone. The exact 1.1.1 crash path therefore cannot be reproduced from
+this source. The previous report does not prove that Ableton was faulting on
+that path in a later build.
 
-## Validation still required on Windows
+## What 1.3.0 changes
 
-This environment cannot resolve `github.com` and has no local JUCE SDK, MSVC, Ableton Live, or Inno Setup, so it cannot perform a full VST3/Standalone build or reproduce the host crash directly. The C++ DSP engine has a standalone test suite; run it on CI or Windows, then install the built VST3 into a clean test set and launch Ableton with the plug-in both visible and hidden. If the exact host crash persists after this patch, collect the Ableton crash report and Windows Event Viewer faulting-module details.
+The eight-slot rewrite removes the whole class of failure rather than relying on
+one guard:
+
+- `KnobCard` checks the parameter before any dereference and renders an
+  “unavailable” card if an ID is missing.
+- `ContextPanel` validates every effect-detail ID with `params::find` before
+  creating a control.
+- All UI raw-parameter reads are null-checked; a source test fails on a chained
+  `getRawParameterValue(...)->load()`.
+- State restore validates XML tag and size, removes unknown/removed PARAM
+  children, resets absent preset parameters, de-duplicates slot assignments,
+  clamps the program index and resets the momentary KILL.
+- Slot arrays are fixed eight-entry arrays with bounds checks.
+- The preset-save editor is not deleted from inside its own callback; deletion is
+  deferred and SafePointer-checked.
+
+The full list of reviewed defects and residual risks is in
+[`AUDIT.md`](AUDIT.md).
+
+## What still has to be verified on Windows
+
+The 1.3.0 native VST3 was not compiled in this environment (no MSVC, CMake, JUCE
+or Inno Setup; direct HTTPS blocked). Open the plug-in in Ableton Live 12 Suite,
+then run the checklist in [`BUILD-VERIFICATION.md`](BUILD-VERIFICATION.md). If a
+crash remains, capture the Ableton crash report and the Windows Event Viewer
+faulting module; do not assume the historical `SetupPage` defect applies.
