@@ -146,7 +146,7 @@ private:
     ContextPanel context;
     PresetOverlay presets;
 
-    ui::AccentButton accent;
+    ui::AccentButton accentButton;
     ui::KillButton kill;
     ui::BypassButton bypass;
 

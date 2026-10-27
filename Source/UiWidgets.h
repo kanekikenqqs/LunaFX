@@ -210,7 +210,7 @@ public:
         p.addCentredArc (c.x, c.y, r * 0.55f, r * 0.55f, 0.f, 0.7f, MathConstants<float>::twoPi - 0.7f, true);
         p.startNewSubPath (c.x, c.y - r * 0.75f);
         p.lineTo (c.x, c.y - 1.f);
-        g.setColour (on ? text() : muted());
+        g.setColour (on ? ui::text() : ui::muted());
         g.strokePath (p, PathStrokeType (1.6f, PathStrokeType::curved, PathStrokeType::rounded));
     }
 private:

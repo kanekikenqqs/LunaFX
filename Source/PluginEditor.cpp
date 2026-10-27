@@ -653,7 +653,7 @@ void PresetOverlay::Model::listBoxItemClicked (int row, const MouseEvent&)
 LunaFXEditor::LunaFXEditor (LunaFXProcessor& p)
     : AudioProcessorEditor (&p), proc (p),
       content (*this), circle (p), rack (p), context (p), presets (p),
-      accent (p), kill (p), bypass (p)
+      accentButton (p), kill (p), bypass (p)
 {
     setLookAndFeel (&lnf);
     addAndMakeVisible (content);
@@ -661,7 +661,7 @@ LunaFXEditor::LunaFXEditor (LunaFXProcessor& p)
     content.addAndMakeVisible (circle);
     content.addAndMakeVisible (rack);
     content.addAndMakeVisible (context);
-    content.addAndMakeVisible (accent);
+    content.addAndMakeVisible (accentButton);
     content.addAndMakeVisible (kill);
     content.addAndMakeVisible (bypass);
 
@@ -820,7 +820,7 @@ void LunaFXEditor::resized()
     rack.setBounds (kRackX, 64, kRackW, 820);
     context.setBounds (kCtxX, 64, kCtxW, 820);
 
-    accent.setBounds (18, 796, 112, 82);
+    accentButton.setBounds (18, 796, 112, 82);
     depthKnob->setBounds (146, 790, 92, 92);
     fadeKnob ->setBounds (244, 790, 92, 92);
     chaosKnob->setBounds (342, 790, 92, 92);
@@ -947,7 +947,7 @@ void LunaFXEditor::timerCallback()
     chaosKnob->tick();
     updatePresetName();
 
-    accent.repaint();
+    accentButton.repaint();
     kill.repaint();
     bypass.repaint();
 }

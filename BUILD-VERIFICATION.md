@@ -54,6 +54,21 @@ ISCC.exe /Odist installer\LunaFX.iss
 The CI workflow `.github/workflows/build-windows.yml` does the same on a
 `windows-2022` runner with JUCE 8.0.6 and uploads `LunaFX-Setup.exe`.
 
+## First MSVC compilation attempt
+
+A subsequent GitHub Actions/Windows build was run against this source. It reached
+the plug-in translation units and reported four compile blockers, all now fixed:
+
+- `UiWidgets.h`: unqualified `text()` inside a `Button` subclass resolved to the
+  private `Button::text` member. It is now `ui::text()`.
+- `PluginEditor.h/.cpp`: the `LunaFXEditor` member named `accent` shadowed the
+  `ui::accent()` palette function. The member is now `accentButton`.
+- Three `accent()` uses in the editor and the `ColourGradient` construction were
+  consequences of that shadowing and now resolve to the palette function.
+
+The next build should be rerun. No native artifact from this source has been
+verified yet.
+
 ## Host checklist still required
 
 1. Build with MSVC in Release x64.
